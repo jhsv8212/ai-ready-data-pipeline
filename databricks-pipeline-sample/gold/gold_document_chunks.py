@@ -11,25 +11,11 @@ from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 import config
 
-# =============================================================================
-# 청킹 설정값 (TODO: config.py로 이동 가능)
-# =============================================================================
-
-# 시멘틱 청킹에 사용할 LLM 모델
-CHUNKING_LLM_MODEL = getattr(config, "CHUNKING_LLM_MODEL", config.LLM_MODEL_NAME)
-
-# 시멘틱 청킹 시 입력 텍스트 최대 길이 (글자수)
-CHUNKING_INPUT_MAX_CHARS = getattr(config, "CHUNKING_INPUT_MAX_CHARS", 2000)
-
-# 시멘틱 청킹 출력 최대 토큰 수
-CHUNKING_MAX_TOKENS = getattr(config, "CHUNKING_MAX_TOKENS", 1500)
-
-# 시멘틱 청킹 프롬프트
-CHUNKING_PROMPT = getattr(config, "CHUNKING_PROMPT", (
-    "다음 텍스트를 의미 단위로 분할하여 JSON 배열로 반환하세요. "
-    "각 청크는 하나의 완결된 의미를 가져야 합니다. "
-    "반드시 JSON 배열 형식으로만 응답하세요: [\"\uccad\ud06c1\", \"\uccad\ud06c2\", ...]\n\n"
-))
+# 청킹 설정값은 config.py에서 관리
+CHUNKING_LLM_MODEL = config.CHUNKING_LLM_MODEL
+CHUNKING_INPUT_MAX_CHARS = config.CHUNKING_INPUT_MAX_CHARS
+CHUNKING_MAX_TOKENS = config.CHUNKING_MAX_TOKENS
+CHUNKING_PROMPT = config.CHUNKING_PROMPT
 
 
 @dp.materialized_view(

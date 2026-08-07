@@ -1,6 +1,6 @@
 # databricks-pipeline-sample
 
-S3에 적재된 보험 문서(PDF)를 Auto Loader로 수집하고, Databricks AI 함수로 텍스트를 추출·요약하는 Lakeflow Spark Declarative Pipeline입니다.
+S3에 적재된 보험 문서(PDF)를 Auto Loader로 수집하고, Databricks AI 함수로 텍스트를 추출·요약·청킹·임베딩하여 RAG(Retrieval-Augmented Generation) 파이프라인을 구성하는 Lakeflow Spark Declarative Pipeline입니다.
 
 ---
 
@@ -14,6 +14,7 @@ S3에 적재된 보험 문서(PDF)를 Auto Loader로 수집하고, Databricks AI
 6. [실행 방법](#실행-방법)
 7. [자동 트리거](#자동-트리거)
 8. [사용 AI 함수](#사용-ai-함수)
+9. [Vector Search 연동](#vector-search-연동)
 
 ---
 
@@ -32,12 +33,24 @@ S3 Landing Zone (PDF)
 │   silver_documents  │  Materialized View — 구조화된 텍스트 + figure 설명 + VARIANT
 └─────────────────────┘
         │
-        ├──────────────────────────────────────────┬──────────────────────────┐
-        ▼                                          ▼                          ▼
-┌──────────────────────┐      ┌────────────────────────────┐  ┌──────────────────────┐
-│ gold_document_summary│      │ gold_document_ai_summary   │  │ gold_category_metrics│
-│ (문서 요약 테이블)    │      │ (AI 요약 - ai_query)        │  │ (일자별 집계 지표)    │
-└──────────────────────┘      └────────────────────────────┘  └──────────────────────┘
+        ├───────────────────────────────────────────────────────┐
+        ▼                                                       ▼
+┌────────────────────────────┐              ┌──────────────────────────────┐
+│ gold_document_ai_summary   │              │   gold_document_chunks       │
+│ (AI 요약 - ai_query)        │              │ (요소별 시멘틱 청킹 - RAG용)  │
+└────────────────────────────┘              └──────────────────────────────┘
+                                                        │
+                                                        ▼ ai_query (임베딩)
+                                            ┌──────────────────────────────┐
+                                            │  gold_document_embeddings    │
+                                            │ (벡터 임베딩 - Vector Search) │
+                                            └──────────────────────────────┘
+                                                        │
+                                                        ▼ Delta Sync
+                                            ┌──────────────────────────────┐
+                                            │  Vector Search Index         │
+                                            │ (유사도 검색 - RAG 응답 생성)  │
+                                            └──────────────────────────────┘
 ```
 
 ---
@@ -47,10 +60,10 @@ S3 Landing Zone (PDF)
 | 테이블 | 타입 | 설명 |
 |---|---|---|
 | `bronze_documents` | Streaming Table | S3 PDF 원본 바이너리 수집 |
-| `silver_documents` | Materialized View | `ai_parse_document()`로 추출한 텍스트 및 메타데이터 |
-| `gold_document_summary` | Materialized View | 문서별 요약 정보 (text_preview, page_count, total_chars) |
-| `gold_category_metrics` | Materialized View | 일자별 집계 지표 (문서 수, 총 페이지, 총 글자수) |
-| `gold_document_ai_summary` | Materialized View | `ai_query()`로 생성한 문서별 한국어 AI 요약 |
+| `silver_documents` | Materialized View | `ai_parse_document()`로 추출한 텍스트·figure 설명·메타데이터 |
+| `gold_document_ai_summary` | Materialized View | `ai_query()`로 생성한 문서별 한국어 AI 요약 (figure 설명 포함) |
+| `gold_document_chunks` | Materialized View | 문서 요소 타입별 청킹 (텍스트: 시멘틱, 표: 문맥 포함, 그림: 구조화 JSON) |
+| `gold_document_embeddings` | Materialized View | `ai_query()`로 생성한 청크별 벡터 임베딩 (Vector Search 소스) |
 
 ---
 
@@ -59,15 +72,17 @@ S3 Landing Zone (PDF)
 ```
 databricks-pipeline-sample_4100f328/
 ├── README.md
+├── config.py                              # 파이프라인 설정값 중앙 관리 모듈
+├── file-arrival-trigger-troubleshooting.md # File Arrival 트리거 트러블슈팅 가이드
 └── pipeline/
     ├── bronze/
-    │   └── bronze_documents.py          # Auto Loader로 PDF 바이너리 수집
+    │   └── bronze_documents.py            # Auto Loader로 PDF 바이너리 수집
     ├── silver/
-    │   └── silver_documents.py          # ai_parse_document()로 텍스트 추출
+    │   └── silver_documents.py            # ai_parse_document()로 텍스트 추출·정제
     └── gold/
-        ├── gold_document_summary.py     # 문서별 요약 테이블
-        ├── gold_category_metrics.py     # 일자별 집계 지표
-        └── gold_document_ai_summary.py  # AI 요약 (ai_query)
+        ├── gold_document_ai_summary.py    # AI 요약 (ai_query + 향후 OpenAI 지원)
+        ├── gold_document_chunks.py        # 요소별 시멘틱 청킹 (RAG용)
+        └── gold_document_embeddings.py    # 벡터 임베딩 생성 (Vector Search용)
 ```
 
 ---
@@ -144,31 +159,31 @@ databricks-pipeline-sample_4100f328/
 
 대시보드 편집 화면 하단의 **Data** 탭에서 각 데이터셋을 추가합니다.
 
-**데이터셋 1 — Gold Document Summary**
-
-1. **Create dataset** 클릭
-2. Dataset name: `Gold Document Summary`
-3. 아래 SQL 입력 후 **Save**:
-   ```sql
-   SELECT * FROM `developer팀`.`default`.`gold_document_summary`
-   ```
-
-**데이터셋 2 — Gold Category Metrics**
-
-1. **Create dataset** 클릭
-2. Dataset name: `Gold Category Metrics`
-3. 아래 SQL 입력 후 **Save**:
-   ```sql
-   SELECT * FROM `developer팀`.`default`.`gold_category_metrics`
-   ```
-
-**데이터셋 3 — Gold Document AI Summary**
+**데이터셋 1 — Gold Document AI Summary**
 
 1. **Create dataset** 클릭
 2. Dataset name: `Gold Document AI Summary`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
    SELECT * FROM `developer팀`.`default`.`gold_document_ai_summary`
+   ```
+
+**데이터셋 2 — Gold Document Chunks**
+
+1. **Create dataset** 클릭
+2. Dataset name: `Gold Document Chunks`
+3. 아래 SQL 입력 후 **Save**:
+   ```sql
+   SELECT * FROM `developer팀`.`default`.`gold_document_chunks`
+   ```
+
+**데이터셋 3 — Gold Document Embeddings**
+
+1. **Create dataset** 클릭
+2. Dataset name: `Gold Document Embeddings`
+3. 아래 SQL 입력 후 **Save**:
+   ```sql
+   SELECT * FROM `developer팀`.`default`.`gold_document_embeddings`
    ```
 
 ### 3. 위젯 추가
@@ -260,7 +275,73 @@ S3 Landing Zone에 새 PDF가 적재되면, 마지막 파일 변경 후 5분 대
 
 ## 사용 AI 함수
 
-| 함수 | 위치 | 설명 |
+| 함수 | 위치 | 모델/버전 | 설명 |
+|---|---|---|---|
+| `ai_parse_document()` | silver_documents.py | v2.0 | PDF 바이너리에서 구조화된 텍스트·표·그림 요소 추출 |
+| `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서별 한국어 3\~5문장 요약 생성 (figure 설명 포함) |
+| `ai_query()` | gold_document_chunks.py | `databricks-meta-llama-3-3-70b-instruct` | 텍스트 요소 시멘틱 청킹 (의미 단위 분할) |
+| `ai_query()` | gold_document_embeddings.py | `databricks-bge-large-en` | 청크별 벡터 임베딩 생성 (1024차원) |
+
+> **참고**: `gold_document_ai_summary.py`에는 OpenAI API 기반 요약 코드가 주석 처리되어 있으며, API 키 발급 후 활성화할 수 있습니다.
+
+---
+
+## Vector Search 연동
+
+`gold_document_embeddings` 테이블을 생성한 뒤, 아래 단계로 Vector Search 인덱스를 설정합니다.
+
+### 1. Vector Search 엔드포인트 생성
+
+```python
+from databricks.vector_search.client import VectorSearchClient
+vsc = VectorSearchClient()
+vsc.create_endpoint(name="document-search-endpoint")
+```
+
+### 2. Delta Sync 인덱스 생성
+
+```python
+vsc.create_delta_sync_index(
+    endpoint_name="document-search-endpoint",
+    index_name="developer팀.default.gold_document_embeddings_index",
+    source_table_name="developer팀.default.gold_document_embeddings",
+    pipeline_type="TRIGGERED",
+    primary_key="chunk_id",
+    embedding_vector_column="embedding",
+    embedding_dimension=1024,  # BGE-large-en 차원
+)
+```
+
+### 3. 유사도 검색 (RAG)
+
+```python
+results = vsc.get_index(
+    endpoint_name="document-search-endpoint",
+    index_name="developer팀.default.gold_document_embeddings_index",
+).similarity_search(
+    query_text="보험 보장 내용",
+    columns=["chunk_content", "document_id", "element_type"],
+    num_results=5,
+)
+```
+
+> **참고**: 인덱스 동기화는 소스 테이블(`gold_document_embeddings`) 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
+
+---
+
+## 설정값 관리 (`config.py`)
+
+모든 하드코딩 값은 `config.py`에서 중앙 관리됩니다. 코드 수정 없이 설정만 변경하려면 이 파일을 수정하세요.
+
+| 설정값 | 기본값 | 설명 |
 |---|---|---|
-| `ai_parse_document()` | silver_documents.py | PDF 바이너리에서 구조화된 텍스트·요소 추출  |
-| `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` 모델로 한국어 요약 생성 |
+| `S3_LANDING_PATH_DEFAULT` | S3 경로 | Bronze 수집 기본 경로 |
+| `AI_PARSE_DOCUMENT_VERSION` | `"2.0"` | ai_parse_document 버전 |
+| `TEXT_PREVIEW_LENGTH` | `500` | 텍스트 미리보기 길이 |
+| `LLM_MODEL_NAME` | `databricks-meta-llama-3-3-70b-instruct` | AI 요약·청킹용 LLM |
+| `AI_INPUT_MAX_CHARS` | `3000` | AI 입력 최대 글자수 |
+| `AI_MAX_TOKENS` | `300` | AI 출력 최대 토큰 |
+| `CHUNK_SIZE` | `500` | 청크 크기 (글자수) |
+| `CHUNK_OVERLAP` | `100` | 청크 간 중복 |
+| `EMBEDDING_MODEL_ENDPOINT` | `databricks-gte-large-en` | 임베딩 모델 |
+| `VS_ENDPOINT_NAME` | `document-search-endpoint` | Vector Search 엔드포인트 |
