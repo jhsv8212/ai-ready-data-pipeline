@@ -30,7 +30,7 @@ S3 Landing Zone (PDF)
         │
         ▼ ai_parse_document()
 ┌─────────────────────┐
-│   silver_documents  │  Materialized View — 구조화된 텍스트 + figure 설명 + VARIANT
+│   silver_documents  │  Streaming Table — 구조화된 텍스트 + figure 설명 + VARIANT
 └─────────────────────┘
         │
         ├───────────────────────────────────────────────────────┐
@@ -40,10 +40,10 @@ S3 Landing Zone (PDF)
 │ (AI 요약 - ai_query)        │              │ (요소별 시멘틱 청킹 - RAG용)  │
 └────────────────────────────┘              └──────────────────────────────┘
                                                         │
-                                                        ▼ ai_query (임베딩)
+                                                        ▼ (Streaming Table)
                                             ┌──────────────────────────────┐
                                             │  gold_document_embeddings    │
-                                            │ (벡터 임베딩 - Vector Search) │
+                                            │ (CDF → Vector Search 소스)   │
                                             └──────────────────────────────┘
                                                         │
                                                         ▼ Delta Sync
@@ -63,7 +63,7 @@ S3 Landing Zone (PDF)
 | `silver_documents` | Materialized View | `ai_parse_document()`로 추출한 텍스트·figure 설명·메타데이터 |
 | `gold_document_ai_summary` | Materialized View | `ai_query()`로 생성한 문서별 한국어 AI 요약 (figure 설명 포함) |
 | `gold_document_chunks` | Materialized View | 문서 요소 타입별 청킹 (텍스트: 시멘틱, 표: 문맥 포함, 그림: 구조화 JSON) |
-| `gold_document_embeddings` | Materialized View | `ai_query()`로 생성한 청크별 벡터 임베딩 (Vector Search 소스) |
+| `gold_document_embeddings` | Streaming Table | Vector Search 소스 테이블 (CDF 활성화, 임베딩은 Vector Search가 자동 계산) |
 
 ---
 
@@ -82,7 +82,7 @@ databricks-pipeline-sample_4100f328/
     └── gold/
         ├── gold_document_ai_summary.py    # AI 요약 (ai_query + 향후 OpenAI 지원)
         ├── gold_document_chunks.py        # 요소별 시멘틱 청킹 (RAG용)
-        └── gold_document_embeddings.py    # 벡터 임베딩 생성 (Vector Search용)
+        └── gold_document_embeddings.py    # Vector Search 소스 Streaming Table (CDF 활성화)
 ```
 
 ---
@@ -112,7 +112,7 @@ databricks-pipeline-sample_4100f328/
 ### 3. Catalog / Schema 설정
 
 1. **Destination** 섹션에서 **Storage options** 클릭
-2. **Catalog** 항목에 `developer팀` 입력
+2. **Catalog** 항목에 `dev_haesung` 입력
 3. **Target schema** 항목에 `default` 입력
 
 ### 4. Compute 설정
@@ -165,7 +165,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document AI Summary`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `developer팀`.`default`.`gold_document_ai_summary`
+   SELECT * FROM `dev_haesung`.`default`.`gold_document_ai_summary`
    ```
 
 **데이터셋 2 — Gold Document Chunks**
@@ -174,7 +174,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document Chunks`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `developer팀`.`default`.`gold_document_chunks`
+   SELECT * FROM `dev_haesung`.`default`.`gold_document_chunks`
    ```
 
 **데이터셋 3 — Gold Document Embeddings**
@@ -183,7 +183,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document Embeddings`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `developer팀`.`default`.`gold_document_embeddings`
+   SELECT * FROM `dev_haesung`.`default`.`gold_document_embeddings`
    ```
 
 ### 3. 위젯 추가
@@ -280,7 +280,7 @@ S3 Landing Zone에 새 PDF가 적재되면, 마지막 파일 변경 후 5분 대
 | `ai_parse_document()` | silver_documents.py | v2.0 | PDF 바이너리에서 구조화된 텍스트·표·그림 요소 추출 |
 | `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서별 한국어 3\~5문장 요약 생성 (figure 설명 포함) |
 | `ai_query()` | gold_document_chunks.py | `databricks-meta-llama-3-3-70b-instruct` | 텍스트 요소 시멘틱 청킹 (의미 단위 분할) |
-| `ai_query()` | gold_document_embeddings.py | `databricks-bge-large-en` | 청크별 벡터 임베딩 생성 (1024차원) |
+| — | gold_document_embeddings.py | `databricks-qwen3-embedding-0-6b` | Vector Search가 chunk_content에서 자동 임베딩 (파이프라인에서 제거됨) |
 
 > **참고**: `gold_document_ai_summary.py`에는 OpenAI API 기반 요약 코드가 주석 처리되어 있으며, API 키 발급 후 활성화할 수 있습니다.
 
@@ -303,12 +303,14 @@ vsc.create_endpoint(name="document-search-endpoint")
 ```python
 vsc.create_delta_sync_index(
     endpoint_name="document-search-endpoint",
-    index_name="developer팀.default.gold_document_embeddings_index",
-    source_table_name="developer팀.default.gold_document_embeddings",
+    index_name="dev_haesung.default.gold_document_embeddings_index",
+    source_table_name="dev_haesung.default.gold_document_embeddings",
     pipeline_type="TRIGGERED",
     primary_key="chunk_id",
-    embedding_vector_column="embedding",
-    embedding_dimension=1024,  # BGE-large-en 차원
+    embedding_source_columns=[{
+        "name": "chunk_content",
+        "model_endpoint_name": "databricks-qwen3-embedding-0-6b"
+    }],
 )
 ```
 
@@ -317,7 +319,7 @@ vsc.create_delta_sync_index(
 ```python
 results = vsc.get_index(
     endpoint_name="document-search-endpoint",
-    index_name="developer팀.default.gold_document_embeddings_index",
+    index_name="dev_haesung.default.gold_document_embeddings_index",
 ).similarity_search(
     query_text="보험 보장 내용",
     columns=["chunk_content", "document_id", "element_type"],
@@ -343,5 +345,5 @@ results = vsc.get_index(
 | `AI_MAX_TOKENS` | `300` | AI 출력 최대 토큰 |
 | `CHUNK_SIZE` | `500` | 청크 크기 (글자수) |
 | `CHUNK_OVERLAP` | `100` | 청크 간 중복 |
-| `EMBEDDING_MODEL_ENDPOINT` | `databricks-gte-large-en` | 임베딩 모델 |
+| `EMBEDDING_MODEL_ENDPOINT` | `databricks-qwen3-embedding-0-6b` | 임베딩 모델 |
 | `VS_ENDPOINT_NAME` | `document-search-endpoint` | Vector Search 엔드포인트 |

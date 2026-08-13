@@ -83,6 +83,64 @@ CHUNKING_PROMPT = (
 )
 
 # =============================================================================
+# Gold Layer - 경로 기반 청킹 전략 (Path-Based Chunking Strategies)
+# =============================================================================
+
+# source_file 경로에 glob 패턴을 매칭하여 해당 청킹 전략 적용
+# 패턴 문법:
+#   **  → 임의 경로 깊이 (/ 포함, 재귀적 매칭)
+#   *   → 단일 디렉토리 내 임의 문자 (/ 제외)
+#   ?   → 단일 문자
+#
+# 청킹 모드 (chunk_mode):
+#   "none"     → 청킹 없이 원본 텍스트 그대로 사용 (전체 텍스트 = 1개 청크)
+#   "fixed"    → 고정 길이 청킹 (chunk_size 글자수로 잘라서 분할)
+#   "overlap"  → 오버랩 청킹 (chunk_size + chunk_overlap 으로 문맥 보존 분할)
+#
+# 매칭 순서: 위에서부터 순서대로 검사, 첫 매칭 적용. 미매칭 시 default
+# TODO: 실제 S3 디렉토리 구조에 맞게 path_pattern을 수정하세요
+PATH_CHUNKING_STRATEGIES = {
+    # -------------------------------------------------------------------------
+    # 1. 청킹 없음 (No Chunking)
+    #    원본 텍스트 전체를 하나의 청크로 사용 (짧은 문서, 요약문 등)
+    #    예: s3://bucket/landing/documents/summaries/단순요약.pdf
+    # -------------------------------------------------------------------------
+    "no_chunk": {
+        "path_pattern": "**/summaries/**/*",
+        "chunk_mode": "none",
+    },
+    # -------------------------------------------------------------------------
+    # 2. 고정 길이 청킹 (Fixed-Length Chunking)
+    #    텍스트를 chunk_size 글자 단위로 잘라서 분할 (오버랩 없음)
+    #    예: s3://bucket/landing/documents/raw_text/대량문서.pdf
+    # -------------------------------------------------------------------------
+    "fixed_chunk": {
+        "path_pattern": "**/raw_text/**/*.pdf",
+        "chunk_mode": "fixed",
+        "chunk_size": 500,
+    },
+    # -------------------------------------------------------------------------
+    # 3. 오버랩 청킹 (Overlap Chunking)
+    #    chunk_size로 잘되, 앞뒤 청크간 chunk_overlap만큼 문맥 공유
+    #    예: s3://bucket/landing/documents/contracts/계약서.pdf
+    # -------------------------------------------------------------------------
+    "overlap_chunk": {
+        "path_pattern": "**/contracts/**/*.pdf",
+        "chunk_mode": "overlap",
+        "chunk_size": 500,
+        "chunk_overlap": 100,
+    },
+    # -------------------------------------------------------------------------
+    # 기본 (fallback): 위 패턴 어느 것에도 매칭되지 않는 모든 파일
+    #    청킹 없이 원본 그대로 사용
+    # -------------------------------------------------------------------------
+    "default": {
+        "path_pattern": None,
+        "chunk_mode": "none",
+    },
+}
+
+# =============================================================================
 # Silver Layer - Document Chunks (RAG 청킹)
 # =============================================================================
 
@@ -100,17 +158,17 @@ CHUNK_OVERLAP = 100
 VS_ENDPOINT_NAME = "document-search-endpoint"
 
 # Vector Search 인덱스명
-VS_INDEX_NAME = "developer팀.default.silver_document_chunks_index"
+VS_INDEX_NAME = "dev_haesung.default.gold_document_embeddings_index"
 
 # 임베딩 모델 엔드포인트 (Delta Sync 자동 임베딩용)
 # Databricks 내장 모델 또는 Model Serving 엔드포인트명
-EMBEDDING_MODEL_ENDPOINT = "databricks-gte-large-en"
+EMBEDDING_MODEL_ENDPOINT = "databricks-qwen3-embedding-0-6b"
 
 # 임베딩 대상 컨럼명
-EMBEDDING_SOURCE_COLUMN = "chunk_text"
+EMBEDDING_SOURCE_COLUMN = "chunk_content"
 
 # 소스 테이블 (Vector Search Delta Sync 대상)
-VS_SOURCE_TABLE = "developer팀.default.silver_document_chunks"
+VS_SOURCE_TABLE = "dev_haesung.default.gold_document_embeddings"
 
 # 검색 시 반환할 최대 결과 수
 VS_NUM_RESULTS = 5

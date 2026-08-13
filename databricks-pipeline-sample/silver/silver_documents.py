@@ -1,7 +1,7 @@
 """Silver Layer: ai_parse_document()로 PDF에서 텍스트를 추출하고 정제합니다.
 
 입력: bronze_documents (Streaming Table)
-출력: silver_documents (Materialized View)
+출력: silver_documents (Streaming Table)
   - full_text: 텍스트 요소만 추출 (표·그림 제외, 깨끗한 평문)
   - figure_descriptions: 그림/차트 요소의 AI 생성 설명 (이미지 내용 파악용)
   - parsed_content: 원본 VARIANT (ai_extract 등 정밀 추출에 활용)
@@ -12,10 +12,10 @@ from pyspark.sql import functions as F
 import config
 
 
-@dp.materialized_view(comment="ai_parse_document()로 PDF 텍스트를 추출·정제한 데이터 (Silver Layer)")
+@dp.table(comment="ai_parse_document()로 PDF 텍스트를 추출·정제한 데이터 (Silver Layer)")
 def silver_documents():
     return (
-        spark.read.table("bronze_documents")
+        spark.readStream.table("bronze_documents")
         # ai_parse_document v2: PDF 바이너리를 구조화된 VARIANT로 출력
         # 반환값에는 pages, elements(텍스트/테이블/그림), metadata 등이 포함됨
         .withColumn(
