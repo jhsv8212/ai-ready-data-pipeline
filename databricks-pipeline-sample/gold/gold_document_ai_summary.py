@@ -1,7 +1,7 @@
 """Gold Layer: 문서별 AI 요약 및 메타데이터를 생성합니다.
 
 입력: silver_documents (Streaming Table)
-출력: gold_document_ai_summary (Materialized View)
+출력: gold_document_ai_summary (Streaming Table)
   - extraction_method: 추출 방식 (예: "LLM 추출 - 청크 본문 기반")
   - summary: LLM이 생성한 한국어 요약 (3~5문장)
   - keywords: AI 추출 키워드 태그 목록 (ARRAY<STRING>)
