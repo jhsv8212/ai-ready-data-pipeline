@@ -59,14 +59,14 @@
 | 모델 | 용도 | 사용 위치 |
 |---|---|---|
 | `databricks-meta-llama-3-3-70b-instruct` | AI 요약, 시멘틱 청킹 | gold_document_ai_summary, gold_document_chunks |
-| `databricks-bge-large-en` | 벡터 임베딩 (1024차원) | gold_document_embeddings |
+| `databricks-qwen3-embedding-0-6b` | 벡터 임베딩 (Vector Search 자동 계산) | Vector Search 인덱스 |
 
 ### 콘솔에서 확인하기
 
 1. 왼쪽 메뉴 **Serving** 클릭 (또는 **Machine Learning** → **Serving**)
 2. **Serving endpoints** 목록에서 아래 엔드포인트 확인:
    - `databricks-meta-llama-3-3-70b-instruct` — 상태: **Ready**
-   - `databricks-bge-large-en` — 상태: **Ready**
+   - `databricks-qwen3-embedding-0-6b` — 상태: **Ready**
 3. 엔드포인트가 보이지 않으면:
    - Databricks 내장 Foundation Model은 자동 제공됩니다 (pay-per-token)
    - Workspace Admin이 Foundation Model APIs를 비활성화한 경우 활성화 필요
@@ -117,13 +117,13 @@ vsc.create_endpoint(name="document-search-endpoint")
 
 | 항목 | 설정값 |
 |---|---|
-| Source table | `developer팀.default.gold_document_embeddings` |
-| Index name | `developer팀.default.gold_document_embeddings_index` |
+| Source table | `dev_haesung.default.gold_document_embeddings` |
+| Index name | `dev_haesung.default.gold_document_embeddings_index` |
 | Primary key | `chunk_id` |
 | Sync mode | **Triggered** (수동 동기화) |
-| Embedding source | **Existing embedding column** |
-| Embedding column | `embedding` |
-| Embedding dimension | `1024` |
+| Embedding source | **Compute embeddings** |
+| Embedding model | `databricks-qwen3-embedding-0-6b` |
+| Source column | `chunk_content` |
 
 4. **Create** 클릭
 5. 상태가 **Online** 이 될 때까지 대기
@@ -137,12 +137,14 @@ vsc = VectorSearchClient()
 
 vsc.create_delta_sync_index(
     endpoint_name="document-search-endpoint",
-    index_name="developer팀.default.gold_document_embeddings_index",
-    source_table_name="developer팀.default.gold_document_embeddings",
+    index_name="dev_haesung.default.gold_document_embeddings_index",
+    source_table_name="dev_haesung.default.gold_document_embeddings",
     pipeline_type="TRIGGERED",
     primary_key="chunk_id",
-    embedding_vector_column="embedding",
-    embedding_dimension=1024,  # BGE-large-en 차원
+    embedding_source_columns=[{
+        "name": "chunk_content",
+        "model_endpoint_name": "databricks-qwen3-embedding-0-6b"
+    }],
 )
 ```
 
@@ -159,7 +161,7 @@ vsc.create_delta_sync_index(
 ```python
 vsc.get_index(
     endpoint_name="document-search-endpoint",
-    index_name="developer팀.default.gold_document_embeddings_index",
+    index_name="dev_haesung.default.gold_document_embeddings_index",
 ).sync()
 ```
 
@@ -177,7 +179,7 @@ from databricks.vector_search.client import VectorSearchClient
 vsc = VectorSearchClient()
 index = vsc.get_index(
     endpoint_name="document-search-endpoint",
-    index_name="developer팀.default.gold_document_embeddings_index",
+    index_name="dev_haesung.default.gold_document_embeddings_index",
 )
 
 results = index.similarity_search(
@@ -195,7 +197,7 @@ for doc in results["result"]["data_array"]:
 ```sql
 SELECT *
 FROM vector_search(
-    index => 'developer팀.default.gold_document_embeddings_index',
+    index => 'dev_haesung.default.gold_document_embeddings_index',
     query => '보험 보장 내용',
     num_results => 5
 )
@@ -220,7 +222,7 @@ FROM vector_search(
 |---|---|---|
 | `Endpoint not found` | 엔드포인트 미생성 | 위 "엔드포인트 생성" 절차 수행 |
 | `Index out of sync` | 소스 테이블 업데이트 후 미동기화 | **Sync now** 실행 |
-| `Dimension mismatch` | 임베딩 차원 불일치 | 인덱스 삭제 후 올바른 차원(1024)으로 재생성 |
+| `Dimension mismatch` | 임베딩 차원 불일치 | 인덱스 삭제 후 올바른 모델로 재생성 |
 | `Permission denied` | Unity Catalog 권한 부족 | 테이블에 SELECT 권한 부여 |
 
 ### 성능 최적화 팁
@@ -242,6 +244,6 @@ FROM vector_search(
 | `CHUNKING_LLM_MODEL` | `LLM_MODEL_NAME`과 동일 | 시멘틱 청킹 전용 LLM |
 | `CHUNKING_INPUT_MAX_CHARS` | `2000` | 청킹 입력 최대 글자수 |
 | `CHUNKING_MAX_TOKENS` | `1500` | 청킹 출력 최대 토큰 |
-| `EMBEDDING_MODEL_ENDPOINT` | `databricks-bge-large-en` | 임베딩 모델 |
+| `EMBEDDING_MODEL_ENDPOINT` | `databricks-qwen3-embedding-0-6b` | 임베딩 모델 (Vector Search 자동 계산) |
 | `VS_ENDPOINT_NAME` | `document-search-endpoint` | Vector Search 엔드포인트명 |
 | `VS_NUM_RESULTS` | `5` | 검색 시 반환할 최대 결과 수 |
