@@ -12,7 +12,24 @@ from pyspark.sql import functions as F
 import config
 
 
-@dp.table(comment="ai_parse_document()로 PDF 텍스트를 추출·정제한 데이터 (Silver Layer)")
+@dp.table(
+    comment="ai_parse_document()로 PDF 텍스트를 추출·정제한 데이터 (Silver Layer)",
+    schema="""
+        document_id STRING NOT NULL,
+        source_file_name STRING,
+        source_file STRING,
+        full_text STRING,
+        figure_descriptions STRING,
+        page_count INT,
+        parsed_content VARIANT,
+        file_size_bytes BIGINT,
+        file_modified_at TIMESTAMP,
+        ingested_at TIMESTAMP,
+        processed_at TIMESTAMP,
+        silver_layer STRING,
+        CONSTRAINT pk_silver_documents PRIMARY KEY (document_id)
+    """,
+)
 def silver_documents():
     return (
         spark.readStream.table("bronze_documents")

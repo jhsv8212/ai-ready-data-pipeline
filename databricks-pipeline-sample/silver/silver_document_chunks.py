@@ -25,6 +25,18 @@ import config
 @dp.table(
     comment="문서 요소별 텍스트 청킹 (Silver Layer) - RAG 벡터검색용",
     table_properties={"delta.enableChangeDataFeed": "true"},
+    schema="""
+        document_id STRING NOT NULL,
+        source_file_name STRING,
+        element_type STRING,
+        element_page INT,
+        element_idx INT,
+        chunk_idx INT,
+        chunk_content STRING,
+        chunk_type STRING,
+        chunked_at TIMESTAMP,
+        CONSTRAINT fk_chunks_document FOREIGN KEY (document_id) REFERENCES silver_documents(document_id)
+    """,
 )
 def silver_document_chunks():
     chunk_size = config.CHUNK_SIZE

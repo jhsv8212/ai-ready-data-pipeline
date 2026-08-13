@@ -9,7 +9,20 @@ from pyspark.sql import functions as F
 import config
 
 
-@dp.table(comment="S3 Landing Zone에서 PDF 파일을 수집한 원시 바이너리 데이터 (Bronze Layer)")
+@dp.table(
+    comment="S3 Landing Zone에서 PDF 파일을 수집한 원시 바이너리 데이터 (Bronze Layer)",
+    schema="""
+        document_id STRING NOT NULL,
+        source_file_name STRING,
+        source_file STRING,
+        content BINARY,
+        file_size_bytes BIGINT,
+        file_modified_at TIMESTAMP,
+        ingested_at TIMESTAMP,
+        bronze_layer STRING,
+        CONSTRAINT pk_bronze_documents PRIMARY KEY (document_id)
+    """,
+)
 def bronze_documents():
     # 파이프라인 configuration에서 S3 경로를 읽음 (기본값: 고정 경로)
     s3_landing_path = spark.conf.get(

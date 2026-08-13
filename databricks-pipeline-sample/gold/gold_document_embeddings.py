@@ -1,9 +1,9 @@
-"""Gold Layer: Vector Search용 임베딩 벡터 생성 테이블
+"""Gold Layer: Vector Search 소스 테이블
 
-입력: gold_document_chunks (Materialized View)
-출력: gold_document_embeddings (Materialized View)
-  - gold_document_chunks의 chunk_content를 databricks-bge-large-en 모델로 임베딩
+입력: silver_document_chunks (Streaming Table)
+출력: gold_document_embeddings (Streaming Table)
   - Vector Search 인덱스의 소스 테이블로 사용
+  - 임베딩은 Vector Search가 chunk_content 컬럼에서 직접 계산 (embedding_source_columns 방식)
 
 [Vector Search 인덱스 동기화 안내]
   이 테이블을 생성한 뒤, 아래 단계로 Vector Search 인덱스를 설정하세요:
@@ -13,53 +13,53 @@
      vsc = VectorSearchClient()
      vsc.create_endpoint(name="document-search-endpoint")
 
-  2. Delta Sync 인덱스 생성 (임베딩이 이미 계산되어 있으므로 직접 동기화):
+  2. Delta Sync 인덱스 생성 (Vector Search가 chunk_content에서 임베딩 자동 계산):
      vsc.create_delta_sync_index(
          endpoint_name="document-search-endpoint",
-         index_name="developer팀.default.gold_document_embeddings_index",
-         source_table_name="developer팀.default.gold_document_embeddings",
+         index_name="dev_haesung.default.gold_document_embeddings_index",
+         source_table_name="dev_haesung.default.gold_document_embeddings",
          pipeline_type="TRIGGERED",
          primary_key="chunk_id",
-         embedding_vector_column="embedding",
-         embedding_dimension=1024,  # BGE-large-en 차원
-         embedding_vector_columns=None,
+         embedding_source_columns=[{
+             "name": "chunk_content",
+             "model_endpoint_name": "databricks-qwen3-embedding-0-6b"
+         }],
      )
 
   3. 인덱스 동기화는 소스 테이블 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
 """
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
-import config
-
-# =============================================================================
-# 임베딩 설정값 (config.py에서 관리)
-# =============================================================================
-
-# 임베딩 모델 엔드포인트명
-EMBEDDING_MODEL = "databricks-bge-large-en"
-
-# 임베딩 대상 컬럼명
-EMBEDDING_SOURCE_COL = "chunk_content"
 
 
-@dp.materialized_view(
-    comment="Vector Search용 문서 청크 임베딩 (Gold Layer) - databricks-bge-large-en"
+@dp.table(
+    comment="Vector Search 소스 테이블 (Gold Layer) - 임베딩은 Vector Search가 chunk_content에서 자동 계산",
+    table_properties={"delta.enableChangeDataFeed": "true"},
+    schema="""
+        chunk_id STRING NOT NULL,
+        document_id STRING NOT NULL,
+        source_file_name STRING,
+        element_type STRING,
+        element_page INT,
+        element_idx INT,
+        chunk_idx INT,
+        chunk_content STRING,
+        chunk_type STRING,
+        chunked_at TIMESTAMP,
+        CONSTRAINT pk_gold_embeddings PRIMARY KEY (chunk_id),
+        CONSTRAINT fk_embeddings_document FOREIGN KEY (document_id) REFERENCES silver_documents(document_id)
+    """,
 )
 def gold_document_embeddings():
     return (
-        spark.read.table("gold_document_chunks")
+        spark.readStream.table("silver_document_chunks")
         .withColumn(
             "chunk_id",
-            F.md5(F.concat("document_id", F.lit("_"), F.col("element_idx").cast("string")))
-        )
-        .withColumn(
-            "embedding",
-            F.expr(f"""
-                ai_query(
-                    '{EMBEDDING_MODEL}',
-                    {EMBEDDING_SOURCE_COL}
-                )
-            """)
+            F.md5(F.concat(
+                "document_id", F.lit("_"),
+                F.col("element_idx").cast("string"), F.lit("_"),
+                F.col("chunk_idx").cast("string")
+            ))
         )
         .select(
             "chunk_id",
@@ -68,9 +68,9 @@ def gold_document_embeddings():
             "element_type",
             "element_page",
             "element_idx",
-            F.col(EMBEDDING_SOURCE_COL).alias("chunk_content"),
+            "chunk_idx",
+            "chunk_content",
             "chunk_type",
-            "embedding",
             "chunked_at",
         )
     )
