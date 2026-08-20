@@ -33,6 +33,7 @@ from pyspark.sql import functions as F
 
 
 @dp.table(
+    name="dev_haesung.gold.gold_document_embeddings",
     comment="Vector Search 소스 테이블 (Gold Layer) - 임베딩은 Vector Search가 chunk_content에서 자동 계산",
     table_properties={"delta.enableChangeDataFeed": "true"},
     schema="""
@@ -47,12 +48,12 @@ from pyspark.sql import functions as F
         chunk_type STRING,
         chunked_at TIMESTAMP,
         CONSTRAINT pk_gold_embeddings PRIMARY KEY (chunk_id),
-        CONSTRAINT fk_embeddings_document FOREIGN KEY (document_id) REFERENCES silver_documents(document_id)
+        CONSTRAINT fk_embeddings_document FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.silver_documents(document_id)
     """,
 )
 def gold_document_embeddings():
     return (
-        spark.readStream.table("silver_document_chunks")
+        spark.readStream.table("dev_haesung.silver.silver_document_chunks")
         .withColumn(
             "chunk_id",
             F.md5(F.concat(

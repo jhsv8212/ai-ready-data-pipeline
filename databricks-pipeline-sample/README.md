@@ -23,47 +23,58 @@ S3에 적재된 보험 문서(PDF)를 Auto Loader로 수집하고, Databricks AI
 ```
 S3 Landing Zone (PDF)
         │
-        ▼ Auto Loader (binaryFile)
-┌─────────────────────┐
-│   bronze_documents  │  Streaming Table — PDF 파일 그대로 수집
-└─────────────────────┘
+        ▼ Auto Loader (binaryFile, allowOverwrites=true)
+┌───────────────────────────────┐
+│   staging_documents           │  Streaming Table — 파일 메타데이터 및 버전 이력
+│   (dev_haesung.staging)       │  S3 버전 관리, 파일 도착 이력 추적
+└───────────────────────────────┘
+        │
+        ▼ Stream-static join (staging metadata + S3 binary)
+┌───────────────────────────────┐
+│   bronze_documents            │  Streaming Table — PDF 바이너리 + 메타데이터
+│   (dev_haesung.bronze)        │
+└───────────────────────────────┘
         │
         ▼ ai_parse_document()
-┌─────────────────────┐
-│   silver_documents  │  Streaming Table — 구조화된 텍스트 + figure 설명 + VARIANT
-└─────────────────────┘
+┌───────────────────────────────┐
+│   silver_documents            │  Streaming Table — 구조화된 텍스트 + figure 설명 + VARIANT
+│   (dev_haesung.silver)        │
+└───────────────────────────────┘
         │
-        ├───────────────────────────────────────────────────────┐
-        ▼                                                       ▼
-┌────────────────────────────┐              ┌──────────────────────────────┐
-│ gold_document_ai_summary   │              │   gold_document_chunks       │
-│ (AI 요약 - ai_query)        │              │ (요소별 시멘틱 청킹 - RAG용)  │
-└────────────────────────────┘              └──────────────────────────────┘
+        ├───────────────────────────────────────────────────────────┐
+        ▼                                                           ▼
+┌────────────────────────────────┐          ┌──────────────────────────────────┐
+│ gold_document_ai_summary       │          │   silver_document_chunks         │
+│ (AI 요약 - ai_query)            │          │ (요소별 오버랩 청킹 - RAG용)      │
+│ (dev_haesung.gold)             │          │ (dev_haesung.silver)             │
+└────────────────────────────────┘          └──────────────────────────────────┘
                                                         │
                                                         ▼ (Streaming Table)
-                                            ┌──────────────────────────────┐
-                                            │  gold_document_embeddings    │
-                                            │ (CDF → Vector Search 소스)   │
-                                            └──────────────────────────────┘
+                                            ┌──────────────────────────────────┐
+                                            │  gold_document_embeddings        │
+                                            │ (CDF → Vector Search 소스)       │
+                                            │ (dev_haesung.gold)               │
+                                            └──────────────────────────────────┘
                                                         │
                                                         ▼ Delta Sync
-                                            ┌──────────────────────────────┐
-                                            │  Vector Search Index         │
-                                            │ (유사도 검색 - RAG 응답 생성)  │
-                                            └──────────────────────────────┘
+                                            ┌──────────────────────────────────┐
+                                            │  Vector Search Index             │
+                                            │ (유사도 검색 - RAG 응답 생성)      │
+                                            └──────────────────────────────────┘
 ```
 
 ---
 
 ## 데이터셋
 
-| 테이블 | 타입 | 설명 |
-|---|---|---|
-| `bronze_documents` | Streaming Table | S3 PDF 원본 바이너리 수집 |
-| `silver_documents` | Materialized View | `ai_parse_document()`로 추출한 텍스트·figure 설명·메타데이터 |
-| `gold_document_ai_summary` | Materialized View | `ai_query()`로 생성한 문서별 한국어 AI 요약 (figure 설명 포함) |
-| `gold_document_chunks` | Materialized View | 문서 요소 타입별 청킹 (텍스트: 시멘틱, 표: 문맥 포함, 그림: 구조화 JSON) |
-| `gold_document_embeddings` | Streaming Table | Vector Search 소스 테이블 (CDF 활성화, 임베딩은 Vector Search가 자동 계산) |
+| 테이블 | 스키마 | 타입 | 설명 |
+|---|---|---|---|
+| `staging_documents` | `dev_haesung.staging` | Streaming Table | S3 파일 메타데이터 및 버전 이력 (바이너리 미저장) |
+| `bronze_documents` | `dev_haesung.bronze` | Streaming Table | S3 PDF 원본 바이너리 + staging 메타데이터 |
+| `silver_documents` | `dev_haesung.silver` | Streaming Table | `ai_parse_document()`로 추출한 텍스트·figure 설명·메타데이터 |
+| `silver_document_chunks` | `dev_haesung.silver` | Streaming Table | 문서 요소별 오버랩 청킹 (RAG 벡터검색용) |
+| `gold_document_ai_summary` | `dev_haesung.gold` | Streaming Table | `ai_query()`로 생성한 문서별 한국어 AI 요약 |
+| `gold_document_embeddings` | `dev_haesung.gold` | Streaming Table | Vector Search 소스 테이블 (CDF 활성화) |
 
 ---
 
@@ -75,14 +86,16 @@ databricks-pipeline-sample_4100f328/
 ├── config.py                              # 파이프라인 설정값 중앙 관리 모듈
 ├── file-arrival-trigger-troubleshooting.md # File Arrival 트리거 트러블슈팅 가이드
 └── pipeline/
+    ├── staging/
+    │   └── staging_documents.py           # S3 파일 메타데이터 및 버전 이력 (dev_haesung.staging)
     ├── bronze/
-    │   └── bronze_documents.py            # Auto Loader로 PDF 바이너리 수집
+    │   └── bronze_documents.py            # staging + S3 binary join (dev_haesung.bronze)
     ├── silver/
-    │   └── silver_documents.py            # ai_parse_document()로 텍스트 추출·정제
+    │   ├── silver_documents.py            # ai_parse_document()로 텍스트 추출 (dev_haesung.silver)
+    │   └── silver_document_chunks.py      # 요소별 오버랩 청킹 (dev_haesung.silver)
     └── gold/
-        ├── gold_document_ai_summary.py    # AI 요약 (ai_query + 향후 OpenAI 지원)
-        ├── gold_document_chunks.py        # 요소별 시멘틱 청킹 (RAG용)
-        └── gold_document_embeddings.py    # Vector Search 소스 Streaming Table (CDF 활성화)
+        ├── gold_document_ai_summary.py    # AI 요약 (dev_haesung.gold)
+        └── gold_document_embeddings.py    # Vector Search 소스 (dev_haesung.gold)
 ```
 
 ---
@@ -113,7 +126,9 @@ databricks-pipeline-sample_4100f328/
 
 1. **Destination** 섹션에서 **Storage options** 클릭
 2. **Catalog** 항목에 `dev_haesung` 입력
-3. **Target schema** 항목에 `default` 입력
+3. **Target schema** 항목에 `default` 입력 (각 테이블이 fully-qualified name으로 스키마를 지정하므로 기본값은 무시됨)
+
+> **참고**: 실제 테이블은 각각 `dev_haesung.staging`, `dev_haesung.bronze`, `dev_haesung.silver`, `dev_haesung.gold` 스키마에 발행됩니다.
 
 ### 4. Compute 설정
 
@@ -165,7 +180,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document AI Summary`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `dev_haesung`.`default`.`gold_document_ai_summary`
+   SELECT * FROM `dev_haesung`.`gold`.`gold_document_ai_summary`
    ```
 
 **데이터셋 2 — Gold Document Chunks**
@@ -174,7 +189,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document Chunks`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `dev_haesung`.`default`.`gold_document_chunks`
+   SELECT * FROM `dev_haesung`.`silver`.`silver_document_chunks`
    ```
 
 **데이터셋 3 — Gold Document Embeddings**
@@ -183,7 +198,7 @@ databricks-pipeline-sample_4100f328/
 2. Dataset name: `Gold Document Embeddings`
 3. 아래 SQL 입력 후 **Save**:
    ```sql
-   SELECT * FROM `dev_haesung`.`default`.`gold_document_embeddings`
+   SELECT * FROM `dev_haesung`.`gold`.`gold_document_embeddings`
    ```
 
 ### 3. 위젯 추가
@@ -267,7 +282,7 @@ databricks-pipeline-sample_4100f328/
 | 최소 실행 간격 | 600초 (10분) |
 | 마지막 변경 후 대기 | 300초 (5분) |
 
-S3 Landing Zone에 새 PDF가 적재되면, 마지막 파일 변경 후 5분 대기 → 파이프라인 자동 실행 → Bronze → Silver → Gold 전체 레이어를 처리합니다.
+S3 Landing Zone에 새 PDF가 적재되면, 마지막 파일 변경 후 5분 대기 → 파이프라인 자동 실행 → Staging → Bronze → Silver → Gold 전체 레이어를 처리합니다.
 
 > **참고**: 트리거 설정을 변경하려면 Lakeflow Jobs 콘솔에서 해당 Job의 Trigger를 수정하세요.
 
@@ -303,8 +318,8 @@ vsc.create_endpoint(name="document-search-endpoint")
 ```python
 vsc.create_delta_sync_index(
     endpoint_name="document-search-endpoint",
-    index_name="dev_haesung.default.gold_document_embeddings_index",
-    source_table_name="dev_haesung.default.gold_document_embeddings",
+    index_name="dev_haesung.gold.gold_document_embeddings_index",
+    source_table_name="dev_haesung.gold.gold_document_embeddings",
     pipeline_type="TRIGGERED",
     primary_key="chunk_id",
     embedding_source_columns=[{
@@ -319,7 +334,7 @@ vsc.create_delta_sync_index(
 ```python
 results = vsc.get_index(
     endpoint_name="document-search-endpoint",
-    index_name="dev_haesung.default.gold_document_embeddings_index",
+    index_name="dev_haesung.gold.gold_document_embeddings_index",
 ).similarity_search(
     query_text="보험 보장 내용",
     columns=["chunk_content", "document_id", "element_type"],
@@ -327,7 +342,7 @@ results = vsc.get_index(
 )
 ```
 
-> **참고**: 인덱스 동기화는 소스 테이블(`gold_document_embeddings`) 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
+> **참고**: 인덱스 동기화는 소스 테이블(`dev_haesung.gold.gold_document_embeddings`) 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
 
 ---
 

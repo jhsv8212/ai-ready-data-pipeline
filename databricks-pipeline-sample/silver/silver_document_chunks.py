@@ -23,6 +23,7 @@ import config
 
 
 @dp.table(
+    name="dev_haesung.silver.silver_document_chunks",
     comment="문서 요소별 텍스트 청킹 (Silver Layer) - RAG 벡터검색용",
     table_properties={"delta.enableChangeDataFeed": "true"},
     schema="""
@@ -35,7 +36,7 @@ import config
         chunk_content STRING,
         chunk_type STRING,
         chunked_at TIMESTAMP,
-        CONSTRAINT fk_chunks_document FOREIGN KEY (document_id) REFERENCES silver_documents(document_id)
+        CONSTRAINT fk_chunks_document FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.silver_documents(document_id)
     """,
 )
 def silver_document_chunks():
@@ -43,7 +44,7 @@ def silver_document_chunks():
     chunk_overlap = config.CHUNK_OVERLAP
     step = chunk_size - chunk_overlap  # 슬라이딩 윈도우 이동 단위 (400자)
 
-    df = spark.readStream.table("silver_documents")
+    df = spark.readStream.table("dev_haesung.silver.silver_documents")
 
     # 1. parsed_content에서 elements 배열 추출 및 posexplode
     df = df.withColumn(

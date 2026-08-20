@@ -1,7 +1,7 @@
 """Gold Layer: 문서별 AI 요약 및 메타데이터를 생성합니다.
 
 입력: silver_documents (Streaming Table)
-출력: gold_document_ai_summary (Streaming Table)
+출력: gold_document_ai_summary (Materialized View)
   - extraction_method: 추출 방식 (예: "LLM 추출 - 청크 본문 기반")
   - summary: LLM이 생성한 한국어 요약 (3~5문장)
   - keywords: AI 추출 키워드 태그 목록 (ARRAY<STRING>)
@@ -185,6 +185,7 @@ def _strip_code_fence(col: Column) -> Column:
 
 
 @dp.table(
+    name="dev_haesung.gold.gold_document_ai_summary",
     comment="문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
     schema="""
         document_id STRING NOT NULL,
@@ -194,11 +195,11 @@ def _strip_code_fence(col: Column) -> Column:
         keywords ARRAY<STRING>,
         metadata VARIANT,
         generated_at TIMESTAMP,
-        CONSTRAINT fk_summary_document FOREIGN KEY (document_id) REFERENCES silver_documents(document_id)
+        CONSTRAINT fk_summary_document FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.silver_documents(document_id)
     """,
 )
 def gold_document_ai_summary():
-    df = spark.readStream.table("silver_documents")
+    df = spark.readStream.table("dev_haesung.silver.silver_documents")
 
     # --- AI 요약 ---
     df = df.withColumn("summary", summarize_with_ai_query())

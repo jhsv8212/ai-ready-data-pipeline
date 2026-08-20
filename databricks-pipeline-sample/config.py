@@ -158,7 +158,7 @@ CHUNK_OVERLAP = 100
 VS_ENDPOINT_NAME = "document-search-endpoint"
 
 # Vector Search 인덱스명
-VS_INDEX_NAME = "dev_haesung.default.gold_document_embeddings_index"
+VS_INDEX_NAME = "dev_haesung.gold.gold_document_embeddings_index"
 
 # 임베딩 모델 엔드포인트 (Delta Sync 자동 임베딩용)
 # Databricks 내장 모델 또는 Model Serving 엔드포인트명
@@ -168,7 +168,7 @@ EMBEDDING_MODEL_ENDPOINT = "databricks-qwen3-embedding-0-6b"
 EMBEDDING_SOURCE_COLUMN = "chunk_content"
 
 # 소스 테이블 (Vector Search Delta Sync 대상)
-VS_SOURCE_TABLE = "dev_haesung.default.gold_document_embeddings"
+VS_SOURCE_TABLE = "dev_haesung.gold.gold_document_embeddings"
 
 # 검색 시 반환할 최대 결과 수
 VS_NUM_RESULTS = 5

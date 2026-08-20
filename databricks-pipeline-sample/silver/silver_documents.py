@@ -13,6 +13,7 @@ import config
 
 
 @dp.table(
+    name="dev_haesung.silver.silver_documents",
     comment="ai_parse_document()로 PDF 텍스트를 추출·정제한 데이터 (Silver Layer)",
     schema="""
         document_id STRING NOT NULL,
@@ -32,7 +33,7 @@ import config
 )
 def silver_documents():
     return (
-        spark.readStream.table("bronze_documents")
+        spark.readStream.table("dev_haesung.bronze.bronze_documents")
         # ai_parse_document v2: PDF 바이너리를 구조화된 VARIANT로 출력
         # 반환값에는 pages, elements(텍스트/테이블/그림), metadata 등이 포함됨
         .withColumn(
