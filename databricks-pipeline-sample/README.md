@@ -81,21 +81,22 @@ S3 Landing Zone (PDF)
 ## 파일 구조
 
 ```
-databricks-pipeline-sample_4100f328/
+databricks-pipeline-sample/
 ├── README.md
-├── config.py                              # 파이프라인 설정값 중앙 관리 모듈
-├── file-arrival-trigger-troubleshooting.md # File Arrival 트리거 트러블슈팅 가이드
-└── pipeline/
-    ├── staging/
-    │   └── staging_documents.py           # S3 파일 메타데이터 및 버전 이력 (dev_haesung.staging)
-    ├── bronze/
-    │   └── bronze_documents.py            # staging + S3 binary join (dev_haesung.bronze)
-    ├── silver/
-    │   ├── silver_documents.py            # ai_parse_document()로 텍스트 추출 (dev_haesung.silver)
-    │   └── silver_document_chunks.py      # 요소별 오버랩 청킹 (dev_haesung.silver)
-    └── gold/
-        ├── gold_document_ai_summary.py    # AI 요약 (dev_haesung.gold)
-        └── gold_document_embeddings.py    # Vector Search 소스 (dev_haesung.gold)
+├── config.py                                  # 파이프라인 설정값 중앙 관리 모듈
+├── compute-ai-search-setup-guide.md           # Vector Search 설정 가이드
+├── file-arrival-trigger-troubleshooting.md    # File Arrival 트리거 트러블슈팅 가이드
+├── dev_haesung_default_ERD.py                 # ERD 다이어그램 생성 노트북
+├── staging/
+│   └── staging__documents.py                  # S3 파일 메타데이터 및 버전 이력 (dev_haesung.staging)
+├── bronze/
+│   └── bronze_documents.py                    # staging + S3 binary join (dev_haesung.bronze)
+├── silver/
+│   ├── silver_documents.py                    # ai_parse_document()로 텍스트 추출 (dev_haesung.silver)
+│   └── silver_document_chunks.py              # 요소별 오버랩 청킹 (dev_haesung.silver)
+└── gold/
+    ├── gold_document_ai_summary.py            # AI 요약 (dev_haesung.gold)
+    └── gold_document_embeddings.py            # Vector Search 소스 (dev_haesung.gold)
 ```
 
 ---
@@ -115,11 +116,11 @@ databricks-pipeline-sample_4100f328/
 1. **Source code** 섹션에서 **Add source code** 클릭
 2. 파일 탐색기에서 아래 경로의 폴더 선택 (glob 패턴 자동 적용)
    ```
-   /Users/{username}/databricks-pipeline-sample_4100f328/pipeline/
+   /Users/{username}/databricks-pipeline-sample/
    ```
 3. 저장 시 glob 패턴이 아래와 같이 설정됨:
    ```
-   /Users/{username}/databricks-pipeline-sample_4100f328/pipeline/**
+   /Users/{username}/databricks-pipeline-sample/**
    ```
 
 ### 3. Catalog / Schema 설정
@@ -294,8 +295,10 @@ S3 Landing Zone에 새 PDF가 적재되면, 마지막 파일 변경 후 5분 대
 |---|---|---|---|
 | `ai_parse_document()` | silver_documents.py | v2.0 | PDF 바이너리에서 구조화된 텍스트·표·그림 요소 추출 |
 | `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서별 한국어 3\~5문장 요약 생성 (figure 설명 포함) |
-| `ai_query()` | gold_document_chunks.py | `databricks-meta-llama-3-3-70b-instruct` | 텍스트 요소 시멘틱 청킹 (의미 단위 분할) |
-| — | gold_document_embeddings.py | `databricks-qwen3-embedding-0-6b` | Vector Search가 chunk_content에서 자동 임베딩 (파이프라인에서 제거됨) |
+| `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 핵심 키워드 10\~20개 추출 (JSON 배열) |
+| `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서 메타데이터 추출 (doc_category, insurance_product_type 등 JSON) |
+| — | silver_document_chunks.py | — | 요소별 오버랩 청킹 (AI 미사용, 고정 길이 슬라이딩 윈도우 알고리즘) |
+| — | gold_document_embeddings.py | `databricks-qwen3-embedding-0-6b` | Vector Search가 chunk_content에서 자동 임베딩 |
 
 > **참고**: `gold_document_ai_summary.py`에는 OpenAI API 기반 요약 코드가 주석 처리되어 있으며, API 키 발급 후 활성화할 수 있습니다.
 
