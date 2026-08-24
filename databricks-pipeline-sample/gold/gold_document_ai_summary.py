@@ -1,7 +1,8 @@
 """Gold Layer: 문서별 AI 요약 및 메타데이터를 생성합니다.
 
-입력: silver_documents (Streaming Table)
-출력: gold_document_ai_summary (Materialized View)
+입력: {상품명}_silver_documents (Streaming Table)
+출력: {상품명}_gold_document_ai_summary (Materialized View, 상품별로 동적 생성)
+  - config.get_product_list()로 스캔한 상품마다 별도 테이블을 생성한다.
   - extraction_method: 추출 방식 (예: "LLM 추출 - 청크 본문 기반")
   - summary: LLM이 생성한 한국어 요약 (3~5문장)
   - keywords: AI 추출 키워드 태그 목록 (ARRAY<STRING>)
@@ -184,72 +185,81 @@ def _strip_code_fence(col: Column) -> Column:
 # =============================================================================
 
 
-@dp.table(
-    name="dev_haesung.gold.gold_document_ai_summary",
-    comment="문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
-    schema="""
-        document_id STRING NOT NULL,
-        source_file_name STRING,
-        extraction_method STRING,
-        summary STRING,
-        keywords ARRAY<STRING>,
-        metadata VARIANT,
-        generated_at TIMESTAMP,
-        CONSTRAINT fk_summary_document FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.silver_documents(document_id)
-    """,
-)
-def gold_document_ai_summary():
-    df = spark.readStream.table("dev_haesung.silver.silver_documents")
+def _generate_gold_document_ai_summary(product: str):
+    """상품 하나에 대한 {product}_gold_document_ai_summary 테이블을 정의한다."""
 
-    # --- AI 요약 ---
-    df = df.withColumn("summary", summarize_with_ai_query())
+    @dp.table(
+        name=f"dev_haesung.gold.{product}_gold_document_ai_summary",
+        comment=f"'{product}' 상품 문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
+        schema=f"""
+            document_id STRING NOT NULL,
+            source_file_name STRING,
+            extraction_method STRING,
+            summary STRING,
+            keywords ARRAY<STRING>,
+            metadata VARIANT,
+            generated_at TIMESTAMP,
+            CONSTRAINT `fk_{product}_summary_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{product}_silver_documents(document_id)
+        """,
+    )
+    def gold_document_ai_summary():
+        df = spark.readStream.table(f"dev_haesung.silver.{product}_silver_documents")
 
-    # --- 키워드 추출 (AI 응답 코드펜스 제거 후 파싱) ---
-    df = df.withColumn(
-        "_raw_keywords",
-        F.expr(f"""
-            ai_query(
-                '{config.LLM_MODEL_NAME}',
-                '다음 보험 문서에서 핵심 키워드를 10~20개 추출하세요. '
-                || '보험 상품명, 보장 내용, 관련 시스템, 규정, 업무 프로세스 등을 포함하세요. '
-                || 'JSON 배열 형식으로만 응답하세요. 예: ["종신보험", "언더라이팅", ...]\n\n'
-                || substr(full_text, 1, {config.AI_INPUT_MAX_CHARS}),
-                modelParameters => named_struct('max_tokens', 200)
-            )
-        """),
-    )
-    df = df.withColumn(
-        "keywords",
-        F.from_json(_strip_code_fence(F.col("_raw_keywords")), "ARRAY<STRING>"),
-    )
+        # --- AI 요약 ---
+        df = df.withColumn("summary", summarize_with_ai_query())
 
-    # --- 메타데이터 추출 (AI 응답 코드펜스 제거 후 파싱) ---
-    df = df.withColumn(
-        "_raw_metadata",
-        F.expr(f"""
-            ai_query(
-                '{config.LLM_MODEL_NAME}',
-                '다음 보험 문서를 분석하여 메타데이터를 JSON으로 추출하세요. '
-                || '반드시 아래 필드를 포함하고, JSON만 응답하세요:\n'
-                || '- doc_category: 문서 유형 (약관/사업방법서/상품설명서/언더라이팅가이드/보험금지급기준/고객안내문 중 택1)\n'
-                || '- insurance_product_type: 보험 상품 유형 (종신/정기/CI/변액/연금/건강/실손/해당없음 중 택1)\n'
-                || '- related_systems: 관련 시스템 배열 (보험코어/언더라이팅/보상/CRM/전자청약/계리 중 해당하는 것)\n'
-                || '- sensitivity_level: 민감도 (공개/내부/민감/개인정보포함/의료정보포함 중 택1)\n'
-                || '- regulation_reference: 관련 규정 (보험업법 조항, 감독규정 등. 없으면 null)\n\n'
-                || substr(full_text, 1, {config.AI_INPUT_MAX_CHARS}),
-                modelParameters => named_struct('max_tokens', 300)
-            )
-        """),
-    )
-    df = df.withColumn("_metadata_cleaned", _strip_code_fence(F.col("_raw_metadata")))
-    df = df.withColumn("metadata", F.expr("parse_json(_metadata_cleaned)"))
+        # --- 키워드 추출 (AI 응답 코드펜스 제거 후 파싱) ---
+        df = df.withColumn(
+            "_raw_keywords",
+            F.expr(f"""
+                ai_query(
+                    '{config.LLM_MODEL_NAME}',
+                    '다음 보험 문서에서 핵심 키워드를 10~20개 추출하세요. '
+                    || '보험 상품명, 보장 내용, 관련 시스템, 규정, 업무 프로세스 등을 포함하세요. '
+                    || 'JSON 배열 형식으로만 응답하세요. 예: ["종신보험", "언더라이팅", ...]\n\n'
+                    || substr(full_text, 1, {config.AI_INPUT_MAX_CHARS}),
+                    modelParameters => named_struct('max_tokens', 200)
+                )
+            """),
+        )
+        df = df.withColumn(
+            "keywords",
+            F.from_json(_strip_code_fence(F.col("_raw_keywords")), "ARRAY<STRING>"),
+        )
 
-    return df.select(
-        "document_id",
-        "source_file_name",
-        F.lit("LLM 추출 (청크 본문 기반)").alias("extraction_method"),
-        "summary",
-        "keywords",
-        "metadata",
-        F.current_timestamp().alias("generated_at"),
-    )
+        # --- 메타데이터 추출 (AI 응답 코드펜스 제거 후 파싱) ---
+        df = df.withColumn(
+            "_raw_metadata",
+            F.expr(f"""
+                ai_query(
+                    '{config.LLM_MODEL_NAME}',
+                    '다음 보험 문서를 분석하여 메타데이터를 JSON으로 추출하세요. '
+                    || '반드시 아래 필드를 포함하고, JSON만 응답하세요:\n'
+                    || '- doc_category: 문서 유형 (약관/사업방법서/상품설명서/언더라이팅가이드/보험금지급기준/고객안내문 중 택1)\n'
+                    || '- insurance_product_type: 보험 상품 유형 (종신/정기/CI/변액/연금/건강/실손/해당없음 중 택1)\n'
+                    || '- related_systems: 관련 시스템 배열 (보험코어/언더라이팅/보상/CRM/전자청약/계리 중 해당하는 것)\n'
+                    || '- sensitivity_level: 민감도 (공개/내부/민감/개인정보포함/의료정보포함 중 택1)\n'
+                    || '- regulation_reference: 관련 규정 (보험업법 조항, 감독규정 등. 없으면 null)\n\n'
+                    || substr(full_text, 1, {config.AI_INPUT_MAX_CHARS}),
+                    modelParameters => named_struct('max_tokens', 300)
+                )
+            """),
+        )
+        df = df.withColumn("_metadata_cleaned", _strip_code_fence(F.col("_raw_metadata")))
+        df = df.withColumn("metadata", F.expr("parse_json(_metadata_cleaned)"))
+
+        return df.select(
+            "document_id",
+            "source_file_name",
+            F.lit("LLM 추출 (청크 본문 기반)").alias("extraction_method"),
+            "summary",
+            "keywords",
+            "metadata",
+            F.current_timestamp().alias("generated_at"),
+        )
+
+    return gold_document_ai_summary
+
+
+for _product in config.get_product_list():
+    _generate_gold_document_ai_summary(_product)

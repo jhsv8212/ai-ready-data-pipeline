@@ -5,6 +5,8 @@
   - 파일 도착 이력 및 버전 관리
   - allowOverwrites=true로 파일 재업로드 감지
   - 바이너리 content는 저장하지 않음 (메타데이터만)
+  - product_name: s3_landing_path(보험/) 바로 아래 1뎁스 폴더명(상품명) 추출.
+    이 컬럼을 기준으로 bronze/silver/gold 레이어가 상품별 테이블로 분기됩니다.
 """
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
@@ -26,6 +28,7 @@ def staging_documents():
         spark.readStream.format("cloudFiles")
         .option("cloudFiles.format", "binaryFile")
         .option("cloudFiles.allowOverwrites", "true")
+        .option("recursiveFileLookup", "true")
         .load(s3_landing_path)
         .withColumn(
             "source_file_name",

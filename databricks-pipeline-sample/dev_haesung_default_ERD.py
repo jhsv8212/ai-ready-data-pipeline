@@ -10,22 +10,28 @@
 # MAGIC **Schema:** `dev_haesung.default`  
 # MAGIC **Pipeline:** `databricks-pipeline-sample` (Document Processing Pipeline)
 # MAGIC
-# MAGIC ## Tables (6)
+# MAGIC ## Tables (7)
 # MAGIC | Layer | Table | Type | Description |
 # MAGIC |-------|-------|------|-------------|
-# MAGIC | Bronze | `bronze_documents` | Streaming Table | S3 Landing Zone에서 PDF 바이너리 수집 |
-# MAGIC | Silver | `silver_documents` | Streaming Table | ai_parse_document()로 텍스트 추출/정제 |
-# MAGIC | Silver | `silver_document_chunks` | Streaming Table | 요소 타입별 텍스트 청킹 (RAG 벡터검색용) |
+# MAGIC | Staging | `staging_documents` | Streaming Table | S3 Landing Zone 파일 메타데이터 및 버전 이력 |
+# MAGIC | Bronze | `bronze_documents` | Streaming Table | S3 Landing Zone에서 문서(MD) 바이너리 수집 |
+# MAGIC | Silver | `silver_documents` | Streaming Table | MD 텍스트 추출/정제 (ai_parse_document 미사용) |
+# MAGIC | Silver | `silver_document_chunks` | Streaming Table | 요소별 오버랩 청킹 (overlap_chunk UDF, RAG 벡터검색용) |
 # MAGIC | Gold | `gold_document_ai_summary` | Streaming Table | AI 기반 문서 요약 및 키워드 추출 |
 # MAGIC | Gold | `gold_document_embeddings` | Streaming Table | Vector Search 소스 테이블 (CDF 활성화) |
 # MAGIC | Gold | `gold_document_embeddings_index` | Vector Index | Delta Sync 기반 벡터 인덱스 (qwen3-embedding-0-6b, 1024d) |
 # MAGIC
 # MAGIC ## Relationships
+# MAGIC - `staging_documents` → `bronze_documents` : 1:1 (source_file 기준 stream-static join)
 # MAGIC - `bronze_documents` → `silver_documents` : 1:1 (Parse)
 # MAGIC - `silver_documents` → `silver_document_chunks` : 1:N (Chunk)
 # MAGIC - `silver_documents` → `gold_document_ai_summary` : 1:1 (AI Summary)
 # MAGIC - `silver_document_chunks` → `gold_document_embeddings` : 1:N (chunk_id 할당)
 # MAGIC - `gold_document_embeddings` → `gold_document_embeddings_index` : 1:1 (Vector Sync)
+# MAGIC
+# MAGIC > 참고: 아래 matplotlib 시각화(`tables`/`positions` dict)는 staging_documents를 포함하지 않은
+# MAGIC > 기존 6-테이블 레이아웃입니다. PNG 다이어그램에 staging 레이어를 추가하려면 레이아웃 좌표를
+# MAGIC > 함께 재계산해야 하므로, 정확한 전체 스키마는 `dev_haesung_default_ERD.md`를 참고하세요.
 
 # COMMAND ----------
 
