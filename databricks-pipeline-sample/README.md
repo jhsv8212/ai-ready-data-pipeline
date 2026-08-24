@@ -106,14 +106,13 @@ S3 Landing Zone (MD)
 ## 파일 구조
 
 ```
-databricks-pipeline-sample_4100f328/
+databricks-pipeline-sample/
 ├── README.md
 ├── config.py                              # 파이프라인 설정값 중앙 관리 모듈
 ├── file-arrival-trigger-troubleshooting.md # File Arrival 트리거 트러블슈팅 가이드
 └── pipeline/
     ├── staging/
-    │   ├── staging_documents.py           # S3 파일 메타데이터 및 버전 이력 (dev_haesung.staging)
-    │   └── staging_document_versions.py   # source_file별 버전 번호/최신 여부 집계 (dev_haesung.staging)
+    │   └── staging_documents.py           # S3 파일 메타데이터 및 버전 이력 (dev_haesung.staging)
     ├── bronze/
     │   └── bronze_documents.py            # staging + S3 binary join (dev_haesung.bronze)
     ├── silver/
@@ -141,11 +140,11 @@ databricks-pipeline-sample_4100f328/
 1. **Source code** 섹션에서 **Add source code** 클릭
 2. 파일 탐색기에서 아래 경로의 폴더 선택 (glob 패턴 자동 적용)
    ```
-   /Users/{username}/databricks-pipeline-sample_4100f328/pipeline/
+   /Users/{username}/databricks-pipeline-sample/
    ```
 3. 저장 시 glob 패턴이 아래와 같이 설정됨:
    ```
-   /Users/{username}/databricks-pipeline-sample_4100f328/pipeline/**
+   /Users/{username}/databricks-pipeline-sample/**
    ```
 
 ### 3. Catalog / Schema 설정
@@ -320,6 +319,7 @@ S3 Landing Zone에 새 MD 파일이 적재되면, 마지막 파일 변경 후 5�
 |---|---|---|---|
 | `ai_parse_document()` | silver_documents.py | v2.0 | **(비활성)** MD 전환으로 주석 처리됨. PDF 바이너리에서 구조화된 텍스트·표·그림 요소 추출 — PDF 복귀 시 재활성화 |
 | `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서별 한국어 3\~5문장 요약 생성 (figure 설명 포함) |
+| `ai_query()` | gold_document_chunks.py | `databricks-meta-llama-3-3-70b-instruct` | 텍스트 요소 시멘틱 청킹 (의미 단위 분할) |
 | — | gold_document_embeddings.py | `databricks-qwen3-embedding-0-6b` | Vector Search가 chunk_content에서 자동 임베딩 (파이프라인에서 제거됨) |
 
 > **참고**: 청킹(`silver_document_chunks.py`)은 AI 함수가 아닌 `overlap_chunk` Python UDF(슬라이딩 윈도우 방식)로 수행되며, Silver 단계까지는 AI 함수를 전혀 사용하지 않습니다.
