@@ -3,27 +3,27 @@ flowchart TD
         ST["staging_documents<br/><i>Streaming Table</i><br/>+ 버전 조회 MV(staging_document_versions)"]
     end
 
-    subgraph Bronze["Bronze Layer (상품별 × N)"]
-        B["{product}_bronze_documents<br/><i>Streaming Table</i>"]
+    subgraph Bronze["Bronze Layer (카테고리별 × N)"]
+        B["{category}_bronze_documents<br/><i>Streaming Table</i>"]
     end
 
-    subgraph Silver["Silver Layer (상품별 × N)"]
-        S["{product}_silver_documents<br/><i>Streaming Table</i>"]
-        SC["{product}_silver_document_chunks<br/><i>Streaming Table</i>"]
+    subgraph Silver["Silver Layer (카테고리별 × N)"]
+        S["{category}_silver_documents<br/><i>Streaming Table</i>"]
+        SC["{category}_silver_document_chunks<br/><i>Streaming Table</i>"]
     end
 
-    subgraph Gold["Gold Layer (상품별 × N)"]
-        GAS["{product}_gold_document_ai_summary<br/><i>Streaming Table</i>"]
-        GE["{product}_gold_document_embeddings<br/><i>Streaming Table</i>"]
+    subgraph Gold["Gold Layer (카테고리별 × N)"]
+        GAS["{category}_gold_document_ai_summary<br/><i>Streaming Table</i>"]
+        GE["{category}_gold_document_embeddings<br/><i>Streaming Table</i>"]
     end
 
-    subgraph VectorSearch["Vector Search (상품별 × N)"]
-        GEI["{product}_gold_document_embeddings_index<br/><i>Vector Index - Delta Sync</i>"]
+    subgraph VectorSearch["Vector Search (카테고리별 × N)"]
+        GEI["{category}_gold_document_embeddings_index<br/><i>Vector Index - Delta Sync</i>"]
     end
 
-    S3[(S3 Landing Zone<br/>MD Files, 상품별 폴더)] -->|Auto Loader<br/>메타데이터만| ST
-    S3 -->|binaryFile static read<br/>product_path만| B
-    ST -->|stream-static join<br/>source_file.startswith product_path| B
+    S3[(S3 Landing Zone<br/>MD Files, 카테고리별 폴더)] -->|Auto Loader<br/>메타데이터만| ST
+    S3 -->|binaryFile static read<br/>category_path만| B
+    ST -->|stream-static join<br/>source_file.startswith category_path| B
     B -->|content.cast STRING| S
     S -->|문서 전체 오버랩 청킹| SC
     S -->|ai_query 요약/키워드/메타데이터| GAS

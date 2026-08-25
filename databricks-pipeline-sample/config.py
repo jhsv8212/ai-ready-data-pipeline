@@ -12,12 +12,12 @@
 S3_LANDING_PATH_DEFAULT = "s3://a-s3-dbx-dev-ane2-aegis01/보험/"
 
 
-def get_product_list(s3_landing_path: str = None) -> list:
-    """S3 Landing Zone 바로 아래 1뎁스 폴더명을 상품 목록으로 반환합니다.
+def get_category_list(s3_landing_path: str = None) -> list:
+    """S3 Landing Zone 바로 아래 1뎁스 폴더명을 카테고리 목록으로 반환합니다.
 
-    bronze/silver/gold 레이어는 이 목록을 기준으로 상품별 테이블
-    ({상품명}_bronze_documents 등)을 동적으로 생성합니다. 파이프라인
-    그래프를 빌드하는 시점(코드 최상위 for 루프)에 호출되므로, 새 상품
+    bronze/silver/gold 레이어는 이 목록을 기준으로 카테고리별 테이블
+    ({카테고리명}_bronze_documents 등)을 동적으로 생성합니다. 파이프라인
+    그래프를 빌드하는 시점(코드 최상위 for 루프)에 호출되므로, 새 카테고리
     폴더가 S3에 추가되면 다음 파이프라인 업데이트/Full Refresh 시
     테이블이 자동으로 새로 생성됩니다.
     """

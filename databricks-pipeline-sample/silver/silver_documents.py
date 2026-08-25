@@ -1,8 +1,8 @@
 """Silver Layer: bronze_documents(MD 파일)에서 텍스트를 추출·정제합니다.
 
-입력: {상품명}_bronze_documents (Streaming Table)
-출력: {상품명}_silver_documents (Streaming Table, 상품별로 동적 생성)
-  - config.get_product_list()로 스캔한 상품마다 별도 테이블을 생성한다.
+입력: {카테고리명}_bronze_documents (Streaming Table)
+출력: {카테고리명}_silver_documents (Streaming Table, 카테고리별로 동적 생성)
+  - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - full_text: MD 파일 원문 텍스트 (content를 STRING으로 디코딩)
   - figure_descriptions / page_count / parsed_content: MD 전환으로 비활성 (항상 NULL)
 
@@ -15,12 +15,12 @@ from pyspark.sql import functions as F
 import config
 
 
-def _generate_silver_documents(product: str):
-    """상품 하나에 대한 {product}_silver_documents 테이블을 정의한다."""
+def _generate_silver_documents(category: str):
+    """카테고리 하나에 대한 {category}_silver_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.silver.{product}_silver_documents",
-        comment=f"'{product}' 상품 MD 파일 텍스트를 추출·정제한 데이터 (Silver Layer) - ai_parse_document() 미사용",
+        name=f"dev_haesung.silver.{category}_silver_documents",
+        comment=f"'{category}' 카테고리 MD 파일 텍스트를 추출·정제한 데이터 (Silver Layer) - ai_parse_document() 미사용",
         schema=f"""
             document_id STRING NOT NULL,
             source_file_name STRING,
@@ -34,13 +34,13 @@ def _generate_silver_documents(product: str):
             ingested_at TIMESTAMP,
             processed_at TIMESTAMP,
             silver_layer STRING,
-            CONSTRAINT `pk_{product}_silver_documents` PRIMARY KEY (document_id)
+            CONSTRAINT `pk_{category}_silver_documents` PRIMARY KEY (document_id)
         """,
     )
     def silver_documents():
         # --- 기존 PDF + ai_parse_document() 기반 파싱 - MD 파일 전환으로 비활성화 ---
         # return (
-        #     spark.readStream.table(f"dev_haesung.bronze.{product}_bronze_documents")
+        #     spark.readStream.table(f"dev_haesung.bronze.{category}_bronze_documents")
         #     # ai_parse_document v2: PDF 바이너리를 구조화된 VARIANT로 출력
         #     # 반환값에는 pages, elements(텍스트/테이블/그림), metadata 등이 포함됨
         #     .withColumn(
@@ -130,7 +130,7 @@ def _generate_silver_documents(product: str):
 
         # MD 파일: ai_parse_document() 없이 content를 바로 텍스트로 디코딩
         return (
-            spark.readStream.table(f"dev_haesung.bronze.{product}_bronze_documents")
+            spark.readStream.table(f"dev_haesung.bronze.{category}_bronze_documents")
             .withColumn("full_text", F.col("content").cast("STRING"))
             # 연속 공백/빈 행 정리
             .withColumn("full_text", F.regexp_replace("full_text", "\\n{3,}", "\n\n"))
@@ -162,5 +162,5 @@ def _generate_silver_documents(product: str):
     return silver_documents
 
 
-for _product in config.get_product_list():
-    _generate_silver_documents(_product)
+for _category in config.get_category_list():
+    _generate_silver_documents(_category)

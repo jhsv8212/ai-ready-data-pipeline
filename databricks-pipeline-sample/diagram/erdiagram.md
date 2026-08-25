@@ -10,7 +10,7 @@ erDiagram
         BOOLEAN is_latest_version "(버전 조회 시) 최신 버전 여부"
     }
 
-    product_bronze_documents {
+    category_bronze_documents {
         STRING document_id PK "문서 고유 식별자 (source_file_name 확장자 제거)"
         STRING source_file_name "원본 파일명"
         STRING source_file "S3 전체 경로"
@@ -21,7 +21,7 @@ erDiagram
         STRING bronze_layer "레이어 식별자"
     }
 
-    product_silver_documents {
+    category_silver_documents {
         STRING document_id PK "문서 고유 식별자"
         STRING source_file_name "원본 파일명"
         STRING source_file "S3 전체 경로"
@@ -36,7 +36,7 @@ erDiagram
         STRING silver_layer "레이어 식별자"
     }
 
-    product_silver_document_chunks {
+    category_silver_document_chunks {
         STRING document_id FK "문서 고유 식별자"
         STRING source_file_name "원본 파일명"
         STRING element_type "항상 'text' (MD 전환 - PDF 복귀 시 table/figure 등 다양화)"
@@ -48,7 +48,7 @@ erDiagram
         TIMESTAMP chunked_at "청킹 처리 시각"
     }
 
-    product_gold_document_ai_summary {
+    category_gold_document_ai_summary {
         STRING document_id FK "문서 고유 식별자"
         STRING source_file_name "원본 파일명"
         STRING extraction_method "추출 방식 (예: LLM 추출 - 청크 본문 기반)"
@@ -58,7 +58,7 @@ erDiagram
         TIMESTAMP generated_at "요약 생성 시각"
     }
 
-    product_gold_document_embeddings {
+    category_gold_document_embeddings {
         STRING chunk_id PK "청크 고유 식별자"
         STRING document_id FK "문서 고유 식별자"
         STRING source_file_name "원본 파일명"
@@ -71,7 +71,7 @@ erDiagram
         TIMESTAMP chunked_at "청킹 처리 시각"
     }
 
-    product_gold_document_embeddings_index {
+    category_gold_document_embeddings_index {
         STRING chunk_id PK "청크 고유 식별자"
         STRING document_id FK "문서 고유 식별자"
         STRING source_file_name "원본 파일명"
@@ -84,9 +84,9 @@ erDiagram
         ARRAY_FLOAT __db_chunk_content_vector "임베딩 벡터(qwen3-embedding-0-6b, 1024d)"
     }
 
-    staging_documents ||--|| product_bronze_documents : "1:1 source_file join (product_path 필터)"
-    product_bronze_documents ||--|| product_silver_documents : "1:1 텍스트 디코딩 (content.cast(STRING))"
-    product_silver_documents ||--o{ product_silver_document_chunks : "1:N Chunk (문서 전체 오버랩 청킹)"
-    product_silver_documents ||--|| product_gold_document_ai_summary : "1:1 AI Summary"
-    product_silver_document_chunks ||--|| product_gold_document_embeddings : "1:1 chunk_id 할당"
-    product_gold_document_embeddings ||--|| product_gold_document_embeddings_index : "1:1 Vector Sync (Delta Sync, 상품별 인덱스)"
+    staging_documents ||--|| category_bronze_documents : "1:1 source_file join (category_path 필터)"
+    category_bronze_documents ||--|| category_silver_documents : "1:1 텍스트 디코딩 (content.cast(STRING))"
+    category_silver_documents ||--o{ category_silver_document_chunks : "1:N Chunk (문서 전체 오버랩 청킹)"
+    category_silver_documents ||--|| category_gold_document_ai_summary : "1:1 AI Summary"
+    category_silver_document_chunks ||--|| category_gold_document_embeddings : "1:1 chunk_id 할당"
+    category_gold_document_embeddings ||--|| category_gold_document_embeddings_index : "1:1 Vector Sync (Delta Sync, 카테고리별 인덱스)"

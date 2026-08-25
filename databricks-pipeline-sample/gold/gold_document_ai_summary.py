@@ -1,8 +1,8 @@
 """Gold Layer: 문서별 AI 요약 및 메타데이터를 생성합니다.
 
-입력: {상품명}_silver_documents (Streaming Table)
-출력: {상품명}_gold_document_ai_summary (Materialized View, 상품별로 동적 생성)
-  - config.get_product_list()로 스캔한 상품마다 별도 테이블을 생성한다.
+입력: {카테고리명}_silver_documents (Streaming Table)
+출력: {카테고리명}_gold_document_ai_summary (Materialized View, 카테고리별로 동적 생성)
+  - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - extraction_method: 추출 방식 (예: "LLM 추출 - 청크 본문 기반")
   - summary: LLM이 생성한 한국어 요약 (3~5문장)
   - keywords: AI 추출 키워드 태그 목록 (ARRAY<STRING>)
@@ -185,12 +185,12 @@ def _strip_code_fence(col: Column) -> Column:
 # =============================================================================
 
 
-def _generate_gold_document_ai_summary(product: str):
-    """상품 하나에 대한 {product}_gold_document_ai_summary 테이블을 정의한다."""
+def _generate_gold_document_ai_summary(category: str):
+    """카테고리 하나에 대한 {category}_gold_document_ai_summary 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.gold.{product}_gold_document_ai_summary",
-        comment=f"'{product}' 상품 문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
+        name=f"dev_haesung.gold.{category}_gold_document_ai_summary",
+        comment=f"'{category}' 카테고리 문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
         schema=f"""
             document_id STRING NOT NULL,
             source_file_name STRING,
@@ -199,11 +199,11 @@ def _generate_gold_document_ai_summary(product: str):
             keywords ARRAY<STRING>,
             metadata VARIANT,
             generated_at TIMESTAMP,
-            CONSTRAINT `fk_{product}_summary_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{product}_silver_documents(document_id)
+            CONSTRAINT `fk_{category}_summary_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{category}_silver_documents(document_id)
         """,
     )
     def gold_document_ai_summary():
-        df = spark.readStream.table(f"dev_haesung.silver.{product}_silver_documents")
+        df = spark.readStream.table(f"dev_haesung.silver.{category}_silver_documents")
 
         # --- AI 요약 ---
         df = df.withColumn("summary", summarize_with_ai_query())
@@ -261,5 +261,5 @@ def _generate_gold_document_ai_summary(product: str):
     return gold_document_ai_summary
 
 
-for _product in config.get_product_list():
-    _generate_gold_document_ai_summary(_product)
+for _category in config.get_category_list():
+    _generate_gold_document_ai_summary(_category)

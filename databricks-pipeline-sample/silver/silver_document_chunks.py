@@ -1,8 +1,8 @@
 """Silver Layer: 텍스트 청킹 (Document Chunking)
 
-입력: {상품명}_silver_documents (Streaming Table)
-출력: {상품명}_silver_document_chunks (Streaming Table, 상품별로 동적 생성)
-  - config.get_product_list()로 스캔한 상품마다 별도 테이블을 생성한다.
+입력: {카테고리명}_silver_documents (Streaming Table)
+출력: {카테고리명}_silver_document_chunks (Streaming Table, 카테고리별로 동적 생성)
+  - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - document_id: 문서 고유 ID
   - source_file_name: 원본 파일명
   - element_type: 요소 유형 (MD 전환 후 항상 "text" - PDF 복귀 시 table/figure 등 다양화)
@@ -69,12 +69,12 @@ def overlap_chunk(text, chunk_size, chunk_overlap):
     return chunks
 
 
-def _generate_silver_document_chunks(product: str):
-    """상품 하나에 대한 {product}_silver_document_chunks 테이블을 정의한다."""
+def _generate_silver_document_chunks(category: str):
+    """카테고리 하나에 대한 {category}_silver_document_chunks 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.silver.{product}_silver_document_chunks",
-        comment=f"'{product}' 상품 문서 텍스트 오버랩 청킹 (Silver Layer) - RAG 벡터검색용, overlap_chunk UDF 사용",
+        name=f"dev_haesung.silver.{category}_silver_document_chunks",
+        comment=f"'{category}' 카테고리 문서 텍스트 오버랩 청킹 (Silver Layer) - RAG 벡터검색용, overlap_chunk UDF 사용",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
             document_id STRING NOT NULL,
@@ -86,14 +86,14 @@ def _generate_silver_document_chunks(product: str):
             chunk_content STRING,
             chunk_type STRING,
             chunked_at TIMESTAMP,
-            CONSTRAINT `fk_{product}_chunks_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{product}_silver_documents(document_id)
+            CONSTRAINT `fk_{category}_chunks_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{category}_silver_documents(document_id)
         """,
     )
     def silver_document_chunks():
         chunk_size = config.CHUNK_SIZE
         chunk_overlap = config.CHUNK_OVERLAP
 
-        df = spark.readStream.table(f"dev_haesung.silver.{product}_silver_documents")
+        df = spark.readStream.table(f"dev_haesung.silver.{category}_silver_documents")
 
         # --- 기존 ai_parse_document elements 기반 요소 추출 (PDF 전용) - MD 전환으로 비활성화 ---
         # # 1. parsed_content에서 elements 배열 추출 및 posexplode
@@ -243,5 +243,5 @@ def _generate_silver_document_chunks(product: str):
     return silver_document_chunks
 
 
-for _product in config.get_product_list():
-    _generate_silver_document_chunks(_product)
+for _category in config.get_category_list():
+    _generate_silver_document_chunks(_category)
