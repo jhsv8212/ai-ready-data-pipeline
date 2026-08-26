@@ -195,7 +195,7 @@ def _generate_gold_document_ai_summary(category: str):
     """카테고리 하나에 대한 {category}_gold_document_ai_summary 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.gold.{category}_gold_document_ai_summary",
+        name=f"gold.{category}_gold_document_ai_summary",
         comment=f"'{category}' 카테고리 문서별 AI 요약 및 메타데이터 (Gold Layer) - 생명보험 도메인",
         schema=f"""
             document_id STRING NOT NULL,
@@ -205,11 +205,11 @@ def _generate_gold_document_ai_summary(category: str):
             keywords ARRAY<STRING>,
             metadata VARIANT,
             generated_at TIMESTAMP,
-            CONSTRAINT `fk_{category}_summary_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{category}_silver_documents(document_id)
+            CONSTRAINT `fk_{category}_summary_document` FOREIGN KEY (document_id) REFERENCES silver.{category}_silver_documents(document_id)
         """,
     )
     def gold_document_ai_summary():
-        df = spark.readStream.table(f"dev_haesung.silver.{category}_silver_documents")
+        df = spark.readStream.table(f"silver.{category}_silver_documents")
 
         # --- 요약: 기존 ai_query() 방식 (비활성화) ---
         # df = df.withColumn("summary", summarize_with_ai_query())

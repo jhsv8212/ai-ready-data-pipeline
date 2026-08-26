@@ -102,7 +102,7 @@ def _generate_gold_document_embeddings(category: str):
     """카테고리 하나에 대한 {category}_gold_document_embeddings 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.gold.{category}_gold_document_embeddings",
+        name=f"gold.{category}_gold_document_embeddings",
         comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - 임베딩은 Vector Search가 chunk_content에서 자동 계산",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
@@ -117,13 +117,13 @@ def _generate_gold_document_embeddings(category: str):
             chunk_type STRING,
             chunked_at TIMESTAMP,
             CONSTRAINT `pk_{category}_gold_embeddings` PRIMARY KEY (chunk_id),
-            CONSTRAINT `fk_{category}_embeddings_document` FOREIGN KEY (document_id) REFERENCES dev_haesung.silver.{category}_silver_documents(document_id)
+            CONSTRAINT `fk_{category}_embeddings_document` FOREIGN KEY (document_id) REFERENCES silver.{category}_silver_documents(document_id)
         """,
         # bge-m3 FastAPI 연동 완료 후 위 schema에 `embedding ARRAY<FLOAT>,` 컬럼을 추가하세요.
     )
     def gold_document_embeddings():
         df = (
-            spark.readStream.table(f"dev_haesung.silver.{category}_silver_document_chunks")
+            spark.readStream.table(f"silver.{category}_silver_document_chunks")
             .withColumn(
                 "chunk_id",
                 F.md5(F.concat(

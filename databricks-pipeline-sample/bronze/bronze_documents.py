@@ -21,7 +21,7 @@ def _generate_bronze_documents(category: str):
     """카테고리 하나에 대한 {category}_bronze_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.bronze.{category}_bronze_documents",
+        name=f"bronze.{category}_bronze_documents",
         comment=f"S3 Landing Zone에서 '{category}' 카테고리 문서 파일(MD)을 수집한 원시 바이너리 데이터 (Bronze Layer)",
         schema=f"""
             document_id STRING NOT NULL,
@@ -44,7 +44,7 @@ def _generate_bronze_documents(category: str):
 
         # Staging에서 이 카테고리 폴더에 속한 파일 메타데이터만 스트리밍 읽기
         staging_stream = (
-            spark.readStream.table("dev_haesung.staging.staging_documents")
+            spark.readStream.table("staging.staging_documents")
             .filter(F.col("source_file").startswith(category_path))
         )
 

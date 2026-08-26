@@ -19,7 +19,7 @@ def _generate_silver_documents(category: str):
     """카테고리 하나에 대한 {category}_silver_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"dev_haesung.silver.{category}_silver_documents",
+        name=f"silver.{category}_silver_documents",
         comment=f"'{category}' 카테고리 MD 파일 텍스트를 추출·정제한 데이터 (Silver Layer) - ai_parse_document() 미사용",
         schema=f"""
             document_id STRING NOT NULL,
@@ -40,7 +40,7 @@ def _generate_silver_documents(category: str):
     def silver_documents():
         # --- 기존 PDF + ai_parse_document() 기반 파싱 - MD 파일 전환으로 비활성화 ---
         # return (
-        #     spark.readStream.table(f"dev_haesung.bronze.{category}_bronze_documents")
+        #     spark.readStream.table(f"bronze.{category}_bronze_documents")
         #     # ai_parse_document v2: PDF 바이너리를 구조화된 VARIANT로 출력
         #     # 반환값에는 pages, elements(텍스트/테이블/그림), metadata 등이 포함됨
         #     .withColumn(
@@ -130,7 +130,7 @@ def _generate_silver_documents(category: str):
 
         # MD 파일: ai_parse_document() 없이 content를 바로 텍스트로 디코딩
         return (
-            spark.readStream.table(f"dev_haesung.bronze.{category}_bronze_documents")
+            spark.readStream.table(f"bronze.{category}_bronze_documents")
             .withColumn("full_text", F.col("content").cast("STRING"))
             # 연속 공백/빈 행 정리
             .withColumn("full_text", F.regexp_replace("full_text", "\\n{3,}", "\n\n"))

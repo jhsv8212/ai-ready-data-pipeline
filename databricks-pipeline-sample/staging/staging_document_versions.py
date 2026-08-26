@@ -17,7 +17,7 @@ from pyspark.sql.window import Window
 
 
 @dp.materialized_view(
-    name="dev_haesung.staging.staging_document_versions",
+    name="staging.staging_document_versions",
     comment="source_file별 재수집 버전 이력 (Staging Layer) - staging_documents 이벤트 원장을 집계",
 )
 def staging_document_versions():
@@ -27,7 +27,7 @@ def staging_document_versions():
     per_file = Window.partitionBy("source_file")
 
     return (
-        spark.read.table("dev_haesung.staging.staging_documents")
+        spark.read.table("staging.staging_documents")
         .withColumn("version_number", F.row_number().over(version_order))
         .withColumn("total_versions", F.max("version_number").over(per_file))
         .withColumn(

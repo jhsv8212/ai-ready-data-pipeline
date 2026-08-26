@@ -15,7 +15,7 @@ import config
 
 
 @dp.table(
-    name="dev_haesung.staging.staging_documents",
+    name="staging.staging_documents",
     comment="S3 Landing Zone 파일 메타데이터 및 버전 이력 (Staging Layer)",
 )
 def staging_documents():
