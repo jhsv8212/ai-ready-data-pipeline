@@ -21,6 +21,9 @@
 전환으로 요소 구분이 사라져 문서 전체(full_text)를 단일 요소로 청킹합니다. 기존 요소 추출
 로직은 삭제하지 않고 주석 처리로 남겨두었습니다.
 """
+import sys
+sys.path.insert(0, "/Workspace/Shared/rag_document_processing_pipeline_f237c77c/transformations")
+
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 from pyspark.sql.types import ArrayType, StructType, StructField, StringType, IntegerType
@@ -73,7 +76,7 @@ def _generate_silver_document_chunks(category: str):
     """카테고리 하나에 대한 {category}_silver_document_chunks 테이블을 정의한다."""
 
     @dp.table(
-        name=f"silver.{category}_silver_document_chunks",
+        name=f"silver.`{category}_silver_document_chunks`",
         comment=f"'{category}' 카테고리 문서 텍스트 오버랩 청킹 (Silver Layer) - RAG 벡터검색용, overlap_chunk UDF 사용",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
@@ -86,14 +89,14 @@ def _generate_silver_document_chunks(category: str):
             chunk_content STRING,
             chunk_type STRING,
             chunked_at TIMESTAMP,
-            CONSTRAINT `fk_{category}_chunks_document` FOREIGN KEY (document_id) REFERENCES silver.{category}_silver_documents(document_id)
+            CONSTRAINT `fk_{category}_chunks_document` FOREIGN KEY (document_id) REFERENCES silver.`{category}_silver_documents`(document_id)
         """,
     )
     def silver_document_chunks():
         chunk_size = config.CHUNK_SIZE
         chunk_overlap = config.CHUNK_OVERLAP
 
-        df = spark.readStream.table(f"silver.{category}_silver_documents")
+        df = spark.readStream.table(f"silver.`{category}_silver_documents`")
 
         # --- 기존 ai_parse_document elements 기반 요소 추출 (PDF 전용) - MD 전환으로 비활성화 ---
         # # 1. parsed_content에서 elements 배열 추출 및 posexplode

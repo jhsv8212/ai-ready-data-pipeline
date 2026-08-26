@@ -8,6 +8,9 @@
   - category_name: s3_landing_path(보험/) 바로 아래 1뎁스 폴더명(카테고리명) 추출.
     이 컬럼을 기준으로 bronze/silver/gold 레이어가 카테고리별 테이블로 분기됩니다.
 """
+import sys
+sys.path.insert(0, "/Workspace/Shared/rag_document_processing_pipeline_f237c77c/transformations")
+
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 

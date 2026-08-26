@@ -10,6 +10,9 @@
 전제로 ai_parse_document() 호출 없이 content를 바로 텍스트로 사용합니다. 추후 PDF로 다시
 바뀔 수 있어 기존 로직은 삭제하지 않고 주석 처리로 남겨두었습니다.
 """
+import sys
+sys.path.insert(0, "/Workspace/Shared/rag_document_processing_pipeline_f237c77c/transformations")
+
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 import config
@@ -19,7 +22,7 @@ def _generate_silver_documents(category: str):
     """카테고리 하나에 대한 {category}_silver_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"silver.{category}_silver_documents",
+        name=f"silver.`{category}_silver_documents`",
         comment=f"'{category}' 카테고리 MD 파일 텍스트를 추출·정제한 데이터 (Silver Layer) - ai_parse_document() 미사용",
         schema=f"""
             document_id STRING NOT NULL,
@@ -130,7 +133,7 @@ def _generate_silver_documents(category: str):
 
         # MD 파일: ai_parse_document() 없이 content를 바로 텍스트로 디코딩
         return (
-            spark.readStream.table(f"bronze.{category}_bronze_documents")
+            spark.readStream.table(f"bronze.`{category}_bronze_documents`")
             .withColumn("full_text", F.col("content").cast("STRING"))
             # 연속 공백/빈 행 정리
             .withColumn("full_text", F.regexp_replace("full_text", "\\n{3,}", "\n\n"))

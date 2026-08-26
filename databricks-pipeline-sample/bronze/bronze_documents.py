@@ -11,6 +11,9 @@ staging_document_versions에 기록된 과거 버전의 실제 파일 내용(바
 S3 버킷 버저닝(콘솔에서 설정 완료)의 VersionId와 연동해 과거 버전 콘텐츠까지 조회/대조하는
 기능은 이번 범위에서 제외 — 필요 시 별도 작업으로 진행.
 """
+import sys
+sys.path.insert(0, "/Workspace/Shared/rag_document_processing_pipeline_f237c77c/transformations")
+
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 
@@ -21,7 +24,7 @@ def _generate_bronze_documents(category: str):
     """카테고리 하나에 대한 {category}_bronze_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"bronze.{category}_bronze_documents",
+        name=f"bronze.`{category}_bronze_documents`",
         comment=f"S3 Landing Zone에서 '{category}' 카테고리 문서 파일(MD)을 수집한 원시 바이너리 데이터 (Bronze Layer)",
         schema=f"""
             document_id STRING NOT NULL,

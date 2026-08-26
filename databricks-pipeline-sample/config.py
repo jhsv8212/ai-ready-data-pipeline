@@ -21,6 +21,12 @@ def get_category_list(s3_landing_path: str = None) -> list:
     폴더가 S3에 추가되면 다음 파이프라인 업데이트/Full Refresh 시
     테이블이 자동으로 새로 생성됩니다.
     """
+    from pyspark.sql import SparkSession
+    from pyspark.dbutils import DBUtils
+
+    spark = SparkSession.getActiveSession()
+    dbutils = DBUtils(spark)
+
     path = s3_landing_path or S3_LANDING_PATH_DEFAULT
     entries = dbutils.fs.ls(path)
     # dbutils.fs.ls()가 반환하는 FileInfo는 디렉터리일 때 name이 "/"로 끝난다
