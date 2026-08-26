@@ -289,7 +289,12 @@ flowchart TD
 | Description | 해당 카테고리 문서별 AI 요약 및 메타데이터 (생명보험 도메인) |
 | Foreign Key | `document_id` → `{카테고리명}_silver_documents.document_id` (제약명 `` `fk_{카테고리명}_summary_document` ``) |
 
-**`metadata` 컬럼 JSON 구조 예시** (현재 `ai_query()` 프롬프트가 요청하는 필드 기준):
+**`metadata` 필드 정의는 `config.py`의 `METADATA_SCHEMA`에서 관리합니다.** 필드를 추가/변경/삭제하려면
+`gold_document_ai_summary.py`의 프롬프트 문자열을 직접 고칠 필요 없이 `config.METADATA_SCHEMA`만 수정하면
+됩니다 — 프롬프트는 `config.build_metadata_prompt_fields()`가 이 정의를 읽어 자동 생성합니다
+(현재 LLM 연동 코드 자체는 고객사 LLM API 전달 대기 중이라 주석 처리 상태이며, 연동 시 이 스키마가 그대로 적용됩니다).
+
+**`metadata` 컬럼 JSON 구조 예시** (현재 `config.METADATA_SCHEMA` 정의 기준):
 
 ```json
 {
