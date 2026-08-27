@@ -28,20 +28,15 @@ sequenceDiagram
     Bronze->>Silver: {category}_bronze_documents 스트림 read
     Silver->>Silver: full_text = content.cast(STRING)<br/>(ai_parse_document 미사용 - PDF 로직은 주석 처리로 보존)<br/>figure_descriptions/page_count/parsed_content는 항상 NULL
 
-    par Gold - AI 요약 / 키워드 / 메타데이터
+    Note over Summary,VS: ⚠ Gold 레이어 현재 비활성화 (for 루프 주석 처리) - 아래는 재활성화 시 동작 템플릿
+
+    par Gold - AI 요약 / 키워드 / 메타데이터 [비활성 - 고객사 LLM API 연동 대기]
         Silver->>Summary: {category}_silver_documents 스트림 read
-        Summary->>LLM: ai_query() 요약 생성
-        Summary->>LLM: ai_query() 키워드 추출
-        Summary->>LLM: ai_query() 메타데이터(JSON) 추출
-        LLM-->>Summary: summary, keywords, metadata
-    and Silver/Gold - 청킹 및 임베딩 소스
+        Note over Summary,LLM: 기존 ai_query() 호출 3건은 주석 처리됨<br/>고객사 LLM API(config.CLIENT_LLM_API_*) 연동 전까지<br/>summary/keywords/metadata는 NULL 고정
+    and Silver/Gold - 청킹 및 임베딩 소스 [비활성 - 테이블 생성 루프 주석 처리]
         Silver->>Chunks: {category}_silver_documents 스트림 read
         Chunks->>Chunks: full_text 전체를 단일 요소로 오버랩 청킹<br/>(overlap_chunk UDF, AI 미사용 / CHUNK_SIZE=500, OVERLAP=100)
         Chunks->>Embeddings: {category}_silver_document_chunks 스트림 read
         Embeddings->>Embeddings: chunk_id = md5(document_id, element_idx, chunk_idx)
+        Note over Embeddings: bge-m3 FastAPI 연동 준비 코드 존재(주석 처리)<br/>완료 시 embedding 컬럼에 벡터 저장 예정
     end
-
-    Embeddings->>VS: Delta Sync (CDF 기반, 카테고리별 인덱스)
-    VS->>VS: chunk_content 자동 임베딩<br/>(databricks-qwen3-embedding-0-6b)
-
-    Note over VS: RAG 애플리케이션에서<br/>similarity_search() 호출

@@ -5,9 +5,17 @@ erDiagram
         LONG file_size_bytes "파일 크기(바이트)"
         TIMESTAMP file_modified_at "파일 수정 시각"
         TIMESTAMP ingested_at "수집 시각"
-        INT version_number "(버전 조회 시) source_file별 도착 순번 - row_number()"
-        INT total_versions "(버전 조회 시) source_file별 총 버전 수"
-        BOOLEAN is_latest_version "(버전 조회 시) 최신 버전 여부"
+    }
+
+    staging_document_versions {
+        STRING source_file FK "S3 전체 경로 (staging_documents 파생)"
+        STRING source_file_name "원본 파일명"
+        LONG file_size_bytes "파일 크기(바이트)"
+        TIMESTAMP file_modified_at "파일 수정 시각"
+        TIMESTAMP ingested_at "수집 시각"
+        INT version_number "source_file별 도착 순번 - row_number()"
+        INT total_versions "source_file별 총 버전 수"
+        BOOLEAN is_latest_version "최신 버전 여부"
     }
 
     category_bronze_documents {
@@ -84,6 +92,7 @@ erDiagram
         ARRAY_FLOAT __db_chunk_content_vector "임베딩 벡터(qwen3-embedding-0-6b, 1024d)"
     }
 
+    staging_documents ||--|| staging_document_versions : "1:1 파생 (Materialized View, row별 버전 계산)"
     staging_documents ||--|| category_bronze_documents : "1:1 source_file join (category_path 필터)"
     category_bronze_documents ||--|| category_silver_documents : "1:1 텍스트 디코딩 (content.cast(STRING))"
     category_silver_documents ||--o{ category_silver_document_chunks : "1:N Chunk (문서 전체 오버랩 청킹)"

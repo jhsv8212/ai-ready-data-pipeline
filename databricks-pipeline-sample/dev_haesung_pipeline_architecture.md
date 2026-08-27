@@ -8,17 +8,21 @@
 - **테이블 네이밍**: `staging`은 전 카테고리 공통 단일 테이블(`staging_documents`)이고, `bronze`/`silver`/`gold`는 카테고리별로 동적 생성되는 `{카테고리명}_{원래 테이블명}` 구조입니다 (예: `CRM_bronze_documents`, `CRM_silver_documents`, `CRM_gold_document_ai_summary`). `config.get_category_list()`가 파이프라인 그래프 빌드 시점에 S3 Landing Zone(`보험/` 바로 아래 1뎁스 폴더)을 스캔해 카테고리 목록을 얻고, 각 bronze/silver/gold 파이프라인 파일이 그 목록으로 for 루프를 돌며 카테고리마다 테이블을 생성합니다 — 자세한 내용은 [staging_documents 섹션](#1-staging_documents)의 참고 참조.
 - **Pipeline:** `databricks-pipeline-sample` (보험 문서 RAG 파이프라인)
 - **Pipeline ID:** `454e3aef-72c9-48da-80f7-4910933e8b4e`
-- **Last updated:** 2026-08-24 (PDF → MD 소스 전환, staging_document_versions 추가, bronze/silver/gold 카테고리별 동적 테이블 생성 반영)
+- **Last updated:** 2026-08-26 (Gold 레이어 일시 비활성화 반영 — 고객사 LLM API / 타 팀 bge-m3 임베딩 API 연동 대기, 테이블명 카탈로그 접두사 제거)
 
-S3 Landing Zone(`s3://a-s3-dbx-dev-ane2-aegis01/보험/`)에 적재된 보험 문서(MD)를 Auto Loader로 수집하고, 텍스트를 정제·청킹한 뒤 Databricks AI 함수(`ai_query`)로 요약·임베딩하여 Vector Search 인덱스와 동기화, RAG(Retrieval-Augmented Generation)에 활용하는 Lakeflow Declarative Pipeline입니다.
+S3 Landing Zone(`s3://a-s3-dbx-dev-ane2-aegis01/보험/`)에 적재된 보험 문서(MD)를 Auto Loader로 수집하고, 텍스트를 정제·청킹하는 Lakeflow Declarative Pipeline입니다. Bronze/Silver 레이어는 활성 상태로 운영 중이며, Gold 레이어(AI 요약·임베딩·Vector Search 동기화)는 아래 **파이프라인 현재 상태** 참고와 같이 외부 연동 대기로 일시 비활성화되어 있습니다.
 
 > **소스 포맷 전환**: 파이프라인은 원래 PDF + `ai_parse_document()` 기반으로 설계되었으나, 현재는 MD 파일 업로드를 전제로 `ai_parse_document()` 호출 없이 바이너리 콘텐츠를 텍스트로 직접 디코딩합니다. 기존 PDF 파싱/요소별 청킹 로직은 삭제하지 않고 각 노트북에 주석 처리로 보존되어 있어 PDF로 복귀 시 재활성화할 수 있습니다.
+
+> **파이프라인 현재 상태 (Gold 레이어 일시 비활성화)**: `gold_document_ai_summary.py` / `gold_document_embeddings.py` 두 파일 모두 최상위 `for _category in config.get_category_list(): ...` 테이블 생성 루프와 `import config`가 주석 처리되어 있어, 현재 파이프라인 그래프에는 **Gold 레이어 테이블이 생성되지 않습니다**. 함수 정의(`_generate_gold_document_ai_summary`, `_generate_gold_document_embeddings`) 자체는 코드에 남아 있으므로 아래 두 외부 연동이 준비되면 for 루프 주석만 해제해 즉시 재활성화할 수 있는 구조입니다.
+> - **AI 요약/키워드/메타데이터**: 기존 Databricks `ai_query()` 방식은 주석 처리로 비활성화되었고, 고객사가 제공할 LLM API(`config.CLIENT_LLM_API_*`, OpenAI 호환 chat completions 스펙 가정)로 대체될 예정입니다. 연동 전까지는 활성화되더라도 `summary`/`keywords`/`metadata`가 모두 `NULL`로 채워집니다 — 자세한 내용은 [5. gold_document_ai_summary 섹션](#5-카테고리명_gold_document_ai_summary) 참고.
+> - **임베딩**: 기존에는 Vector Search가 `chunk_content`에서 자동으로 임베딩을 계산(`databricks-qwen3-embedding-0-6b`, `embedding_source_columns` 방식)했으나, 다른 팀이 개발 중인 외부 bge-m3 FastAPI 임베딩 서비스가 완료되면 파이프라인이 직접 API를 호출해 `embedding` 컬럼에 벡터를 저장하는 방식(`embedding_vector_column`)으로 전환할 계획입니다 — 자세한 내용은 [6. gold_document_embeddings 섹션](#6-카테고리명_gold_document_embeddings) 참고.
 
 ---
 
 ## 파이프라인 시퀀스 흐름 (Mermaid)
 
-File Arrival 트리거부터 Vector Search 동기화까지의 처리 순서입니다. bronze/silver/gold는 카테고리별로 동적 생성되므로, 아래 흐름은 카테고리 하나(`{category}`)에 대한 템플릿이며 실제로는 `config.get_category_list()`가 반환하는 카테고리 수만큼 병렬로 반복됩니다.
+File Arrival 트리거부터 Vector Search 동기화까지의 처리 순서입니다. bronze/silver/gold는 카테고리별로 동적 생성되므로, 아래 흐름은 카테고리 하나(`{category}`)에 대한 템플릿이며 실제로는 `config.get_category_list()`가 반환하는 카테고리 수만큼 병렬로 반복됩니다. **Gold 구간(요약~Vector Search)은 현재 파이프라인에서 비활성화되어 있으며(위 파이프라인 현재 상태 참고), 아래 다이어그램은 재활성화 시 동작할 흐름을 보여줍니다.**
 
 ```mermaid
 sequenceDiagram
@@ -51,23 +55,23 @@ sequenceDiagram
     Bronze->>Silver: {category}_bronze_documents 스트림 read
     Silver->>Silver: full_text = content.cast(STRING)<br/>(ai_parse_document 미사용 - PDF 로직은 주석 처리로 보존)<br/>figure_descriptions/page_count/parsed_content는 항상 NULL
 
-    par Gold - AI 요약 / 키워드 / 메타데이터
+    Note over Summary,VS: ⚠ Gold 레이어 현재 비활성화 (for 루프 주석 처리) - 아래는 재활성화 시 동작 템플릿
+
+    par Gold - AI 요약 / 키워드 / 메타데이터 [비활성 - 고객사 LLM API 연동 대기]
         Silver->>Summary: {category}_silver_documents 스트림 read
-        Summary->>LLM: ai_query() 요약 생성
-        Summary->>LLM: ai_query() 키워드 추출
-        Summary->>LLM: ai_query() 메타데이터(JSON) 추출
-        LLM-->>Summary: summary, keywords, metadata
-    and Silver/Gold - 청킹 및 임베딩 소스
+        Note over Summary,LLM: 기존 ai_query() 호출 3건은 주석 처리됨<br/>고객사 LLM API(config.CLIENT_LLM_API_*) 연동 전까지<br/>summary/keywords/metadata는 NULL 고정
+    and Silver/Gold - 청킹 및 임베딩 소스 [비활성 - 테이블 생성 루프 주석 처리]
         Silver->>Chunks: {category}_silver_documents 스트림 read
         Chunks->>Chunks: full_text 전체를 단일 요소로 오버랩 청킹<br/>(overlap_chunk UDF, AI 미사용 / CHUNK_SIZE=500, OVERLAP=100)
         Chunks->>Embeddings: {category}_silver_document_chunks 스트림 read
         Embeddings->>Embeddings: chunk_id = md5(document_id, element_idx, chunk_idx)
+        Note over Embeddings: bge-m3 FastAPI 연동 준비 코드 존재(주석 처리)<br/>완료 시 embedding 컬럼에 벡터 저장 예정
     end
 
     Embeddings->>VS: Delta Sync (CDF 기반, 카테고리별 인덱스)
-    VS->>VS: chunk_content 자동 임베딩<br/>(databricks-qwen3-embedding-0-6b)
+    VS->>VS: chunk_content 자동 임베딩 [현재 방식]<br/>(databricks-qwen3-embedding-0-6b)
 
-    Note over VS: RAG 애플리케이션에서<br/>similarity_search() 호출
+    Note over VS: RAG 애플리케이션에서<br/>similarity_search() 호출<br/>(Gold 재활성화 이후 유효)
 ```
 
 ---
@@ -82,9 +86,17 @@ erDiagram
         LONG file_size_bytes "파일 크기(바이트)"
         TIMESTAMP file_modified_at "파일 수정 시각"
         TIMESTAMP ingested_at "수집 시각"
-        INT version_number "(버전 조회 시) source_file별 도착 순번 - row_number()"
-        INT total_versions "(버전 조회 시) source_file별 총 버전 수"
-        BOOLEAN is_latest_version "(버전 조회 시) 최신 버전 여부"
+    }
+
+    staging_document_versions {
+        STRING source_file FK "S3 전체 경로 (staging_documents 파생)"
+        STRING source_file_name "원본 파일명"
+        LONG file_size_bytes "파일 크기(바이트)"
+        TIMESTAMP file_modified_at "파일 수정 시각"
+        TIMESTAMP ingested_at "수집 시각"
+        INT version_number "source_file별 도착 순번 - row_number()"
+        INT total_versions "source_file별 총 버전 수"
+        BOOLEAN is_latest_version "최신 버전 여부"
     }
 
     category_bronze_documents {
@@ -161,6 +173,7 @@ erDiagram
         ARRAY_FLOAT __db_chunk_content_vector "임베딩 벡터(qwen3-embedding-0-6b, 1024d)"
     }
 
+    staging_documents ||--|| staging_document_versions : "1:1 파생 (Materialized View, row별 버전 계산)"
     staging_documents ||--|| category_bronze_documents : "1:1 source_file join (category_path 필터)"
     category_bronze_documents ||--|| category_silver_documents : "1:1 텍스트 디코딩 (content.cast(STRING))"
     category_silver_documents ||--o{ category_silver_document_chunks : "1:N Chunk (문서 전체 오버랩 청킹)"
@@ -169,11 +182,13 @@ erDiagram
     category_gold_document_embeddings ||--|| category_gold_document_embeddings_index : "1:1 Vector Sync (Delta Sync, 카테고리별 인덱스)"
 ```
 
+> **참고(Gold 레이어 현재 비활성화)**: `category_gold_document_ai_summary`, `category_gold_document_embeddings`, `category_gold_document_embeddings_index` 및 이들과 연결된 관계는 코드상 정의는 존재하지만, 테이블 생성 for 루프가 주석 처리되어 있어 현재 스키마에는 실제로 생성되어 있지 않습니다. 위 파이프라인 현재 상태 참고.
+>
 > **참고(카테고리별 반복)**: 위 ERD는 카테고리 하나에 대한 템플릿이며, `category_`로 시작하는 엔티티명은 실제로는 `{카테고리명}_`가 붙습니다(예: `category_bronze_documents` → `CRM_bronze_documents`). `config.get_category_list()`가 반환하는 카테고리마다 `bronze_documents.py` / `silver_documents.py` / `silver_document_chunks.py` / `gold_document_ai_summary.py` / `gold_document_embeddings.py`가 각각 for 루프로 실제 테이블 세트를 생성하므로, 실제 스키마에는 카테고리 수 × 5개(+ Vector Search 인덱스)의 물리 테이블이 존재합니다. `staging_documents`(및 `staging_document_versions`)만 전 카테고리 공통 단일 테이블입니다.
 
-> **참고**: `staging_documents`, `{카테고리명}_silver_document_chunks`, `{카테고리명}_gold_document_ai_summary`는 코드상 명시적 PK 제약이 선언되어 있지 않습니다. `{카테고리명}_bronze_documents`, `{카테고리명}_silver_documents`, `{카테고리명}_gold_document_embeddings`만 스키마에 `CONSTRAINT ... PRIMARY KEY`가 명시되어 있습니다.
+> **참고**: `staging_documents`, `staging_document_versions`, `{카테고리명}_silver_document_chunks`, `{카테고리명}_gold_document_ai_summary`는 코드상 명시적 PK 제약이 선언되어 있지 않습니다. `{카테고리명}_bronze_documents`, `{카테고리명}_silver_documents`, `{카테고리명}_gold_document_embeddings`만 스키마에 `CONSTRAINT ... PRIMARY KEY`가 명시되어 있습니다.
 >
-> **참고(버전 조회)**: `version_number` / `total_versions` / `is_latest_version`은 `staging_documents` 테이블 자체 컬럼이 아니라, 이를 `source_file` 기준으로 읽어 `row_number()`를 계산하는 별도 Materialized View(`staging_document_versions`)가 파생시키는 값입니다. 두 객체는 물리적으로 분리되어 있지만 하나의 논리적 엔티티로 묶어 설명합니다.
+> **참고(버전 조회)**: `staging_document_versions`는 `staging_documents`를 `source_file` 기준으로 읽어 `row_number()`/`max()` 윈도우 함수로 `version_number` / `total_versions` / `is_latest_version`을 계산해 붙이는 별도 Materialized View입니다. 물리적으로 분리된 오브젝트이므로 위 ERD에서도 별도 엔티티로 표현했습니다. Bronze 레이어는 이 파생 뷰가 아니라 `staging_documents`를 직접 스트리밍으로 읽습니다.
 >
 > **참고(S3 버전 관리)**: S3 버킷 버저닝은 콘솔에서 활성화되어 있으나, 위 버전 컬럼들은 메타데이터(도착 순서/최신 여부)만 추적할 뿐 과거 버전의 실제 파일 콘텐츠는 저장/대조하지 않습니다. S3 VersionId와 연동한 콘텐츠 히스토리 조회는 범위 외(TODO)입니다.
 
@@ -220,6 +235,8 @@ flowchart TD
     style Gold fill:#FFFBE6,stroke:#B8860B,stroke-width:2px
     style VectorSearch fill:#F0E6FF,stroke:#531DAB,stroke-width:2px
 ```
+
+> **참고**: `Gold`/`VectorSearch` 서브그래프는 현재 파이프라인에서 비활성화된 구간입니다(테이블 생성 for 루프 주석 처리). 실제로는 `Silver` 레이어까지만 매 트리거마다 갱신됩니다.
 
 ---
 
@@ -281,20 +298,33 @@ flowchart TD
 
 ### 5. {카테고리명}_gold_document_ai_summary
 
+> **⚠ 현재 비활성화**: `gold_document_ai_summary.py` 최하단의 `for _category in config.get_category_list(): _generate_gold_document_ai_summary(_category)` 루프와 `import config`가 주석 처리되어 있어, 현재 파이프라인 그래프에는 이 테이블이 **생성되지 않습니다**. 아래 내용은 재활성화 시(주석 해제 시) 적용될 스키마/동작입니다.
+
 | Property | Value |
 |----------|-------|
-| Type | Streaming Table (카테고리별 동적 생성) |
+| Type | Streaming Table (카테고리별 동적 생성 — 현재 생성 루프 주석 처리로 비활성) |
 | Layer | Gold |
 | Source | `{카테고리명}_silver_documents` |
 | Description | 해당 카테고리 문서별 AI 요약 및 메타데이터 (생명보험 도메인) |
 | Foreign Key | `document_id` → `{카테고리명}_silver_documents.document_id` (제약명 `` `fk_{카테고리명}_summary_document` ``) |
 
+**요약 방식 전환**: 기존에는 Databricks 내장 `ai_query()`로 요약/키워드/메타데이터를 직접 생성했으나, 이 로직 전체가 주석 처리되어 비활성화되었습니다. 대신 고객사가 API 형태로 제공할 LLM(`config.CLIENT_LLM_API_*` — URL/인증키/모델명/타임아웃)을 호출하는 방식으로 교체될 예정이며, 호출용 `pandas_udf`(요청 페이로드는 OpenAI 호환 chat completions 스펙 가정, 인증키는 `dbutils.secrets.get()`으로 조회) 준비 코드가 주석 처리된 채로 파일에 이미 작성되어 있습니다. **고객사로부터 API 전달이 완료되면 해당 주석을 해제하고 `config.py`의 `CLIENT_LLM_API_*` 값을 실제 값으로 채우면 됩니다.**
+
+**현재(연동 전) 동작**: 두 요약 방식 모두 비활성 상태이므로, 실제 `select()`는 아래처럼 고정값만 반환합니다.
+
+| Column | 현재 값 |
+|--------|---------|
+| `extraction_method` | 리터럴 `"고객사 LLM API 연동 대기 (준비 코드 작성 완료)"` |
+| `summary` | `NULL` |
+| `keywords` | `NULL` |
+| `metadata` | `NULL` (VARIANT) |
+
 **`metadata` 필드 정의는 `config.py`의 `METADATA_SCHEMA`에서 관리합니다.** 필드를 추가/변경/삭제하려면
 `gold_document_ai_summary.py`의 프롬프트 문자열을 직접 고칠 필요 없이 `config.METADATA_SCHEMA`만 수정하면
 됩니다 — 프롬프트는 `config.build_metadata_prompt_fields()`가 이 정의를 읽어 자동 생성합니다
-(현재 LLM 연동 코드 자체는 고객사 LLM API 전달 대기 중이라 주석 처리 상태이며, 연동 시 이 스키마가 그대로 적용됩니다).
+(고객사 LLM API 연동 후 이 스키마가 그대로 적용됩니다).
 
-**`metadata` 컬럼 JSON 구조 예시** (현재 `config.METADATA_SCHEMA` 정의 기준):
+**`metadata` 컬럼 JSON 구조 예시** (현재 `config.METADATA_SCHEMA` 정의 기준, 연동 완료 후 실제 채워질 형태):
 
 ```json
 {
@@ -308,29 +338,46 @@ flowchart TD
 
 ### 6. {카테고리명}_gold_document_embeddings
 
+> **⚠ 현재 비활성화**: `gold_document_embeddings.py`도 동일하게 최하단 `for _category in config.get_category_list(): _generate_gold_document_embeddings(_category)` 루프와 `import config`가 주석 처리되어 있어 현재 생성되지 않습니다.
+
 | Property | Value |
 |----------|-------|
-| Type | Streaming Table (카테고리별 동적 생성) |
+| Type | Streaming Table (카테고리별 동적 생성 — 현재 생성 루프 주석 처리로 비활성) |
 | Layer | Gold |
 | Source | `{카테고리명}_silver_document_chunks` |
-| Description | 해당 카테고리 Vector Search 소스 테이블 (임베딩은 Vector Search가 자동 계산) |
+| Description | 해당 카테고리 Vector Search 소스 테이블 |
 | Primary Key | `chunk_id` (제약명 `` `pk_{카테고리명}_gold_embeddings` ``) |
 | Foreign Key | `document_id` → `{카테고리명}_silver_documents.document_id` (제약명 `` `fk_{카테고리명}_embeddings_document` ``) |
 | CDF | `delta.enableChangeDataFeed = true` |
 
+**임베딩 계산 방식 전환 (진행 중)**:
+
+| | 기존 방식 (현재 인프라) | 신규 방식 (연동 준비, 다른 팀 개발 완료 대기) |
+|---|---|---|
+| 계산 주체 | Vector Search가 `chunk_content`에서 자동 계산 | 파이프라인이 직접 외부 API 호출 후 저장 |
+| 모델/서비스 | `databricks-qwen3-embedding-0-6b` | 다른 팀이 개발 중인 bge-m3 FastAPI 서비스 (`config.EMBEDDING_API_*`) |
+| 인덱스 연동 방식 | `embedding_source_columns` | `embedding_vector_column="embedding"` |
+| 테이블 컬럼 | 없음 (Vector Search가 인덱스 쪽에서 계산) | `embedding ARRAY<FLOAT>` 컬럼 추가 필요 |
+| 현재 상태 | Vector Search 인프라 자체는 이 방식 기준으로 유지 중 | 호출용 `pandas_udf`(`embed_with_bge_m3_api`, 배치 크기 `EMBEDDING_API_BATCH_SIZE`) 준비 코드가 주석 처리된 채 작성됨 |
+
+다른 팀의 bge-m3 서비스 개발이 완료되면 `embed_with_bge_m3_api` 관련 주석을 해제하고, `@dp.table` 스키마와 최종 `select()`에 `embedding ARRAY<FLOAT>` 컬럼을 추가한 뒤 `config.py`의 `EMBEDDING_API_*` 값을 실제 값으로 설정하는 순서로 전환합니다.
+
 ### 7. {카테고리명}_gold_document_embeddings_index
+
+> **⚠ 현재 비활성화**: 소스 테이블(`{카테고리명}_gold_document_embeddings`)이 생성되지 않으므로 이 인덱스도 현재는 생성/동기화되지 않습니다.
 
 | Property | Value |
 |----------|-------|
 | Type | Foreign Table (Vector Index) |
 | Layer | Gold |
 | Source | `{카테고리명}_gold_document_embeddings` (Delta Sync) |
-| Description | 해당 카테고리 Managed Vector Index - chunk_content 컬럼에서 벡터 자동 생성 |
+| Description | 해당 카테고리 Managed Vector Index |
 | Primary Key | `chunk_id` |
-| Embedding Model | `databricks-qwen3-embedding-0-6b` (1024 dimensions) |
+| Embedding Model (기존 방식) | `databricks-qwen3-embedding-0-6b` (1024 dimensions) |
+| Embedding (신규 방식, 대기 중) | 파이프라인이 저장한 `embedding` 컬럼 그대로 사용 (bge-m3, `config.EMBEDDING_API_DIMENSION`=1024) |
 | Endpoint | `document-search-endpoint` (STANDARD, 카테고리 간 공용) |
 
-> **참고**: 이 인덱스는 파이프라인 `.py` 코드가 아니라 별도 노트북/스크립트에서 `VectorSearchClient.create_delta_sync_index()`로 생성합니다 (`gold_document_embeddings.py` 상단 docstring 참조). 카테고리별 인덱스를 만들려면 `config.get_category_list()`로 카테고리마다 반복 호출해야 하며, 이 자동화는 현재 리포지토리에 포함되어 있지 않습니다.
+> **참고**: 이 인덱스는 파이프라인 `.py` 코드가 아니라 별도 노트북/스크립트에서 `VectorSearchClient.create_delta_sync_index()`로 생성합니다. 두 방식(기존 `embedding_source_columns` / 신규 `embedding_vector_column`)의 구체적인 호출 코드가 이제 `gold_document_embeddings.py` 상단 docstring에 카테고리 반복 예시(`for category in config.get_category_list(): vsc.create_delta_sync_index(...)`)와 함께 문서화되어 있습니다 — 다만 이 코드는 실행 자동화가 아니라 안내용 스니펫이며, 실제 실행은 여전히 파이프라인 밖에서 수동으로 이뤄집니다.
 
 ---
 
@@ -343,8 +390,9 @@ S3 (MD, 카테고리별 1뎁스 폴더: 보험/{카테고리명}/...)
       └── (카테고리마다 반복: config.get_category_list())
            └── {카테고리명}_bronze_documents      [source_file.startswith(category_path) 필터 + stream-static join]
                 └── {카테고리명}_silver_documents  [content.cast(STRING), ai_parse_document 미사용]
+                     │    ⚠ 아래 Gold 레이어는 테이블 생성 for 루프 주석 처리로 현재 비활성 (재활성화 시 동작 예정)
                      ├── {카테고리명}_silver_document_chunks     [문서 전체 오버랩 청킹 - overlap_chunk UDF]
-                     │    └── {카테고리명}_gold_document_embeddings  [chunk_id 할당]
+                     │    └── {카테고리명}_gold_document_embeddings  [chunk_id 할당 + (연동 대기) bge-m3 API 임베딩]
                      │         └── {카테고리명}_gold_document_embeddings_index  [Vector Search Delta Sync, 별도 스크립트로 생성]
-                     └── {카테고리명}_gold_document_ai_summary   [ai_query 요약/키워드/메타데이터]
+                     └── {카테고리명}_gold_document_ai_summary   [(연동 대기) 고객사 LLM API 요약/키워드/메타데이터 - 현재 NULL]
 ```
