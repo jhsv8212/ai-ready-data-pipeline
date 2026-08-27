@@ -52,125 +52,11 @@ AI_PARSE_DOCUMENT_VERSION = "2.0"
 TEXT_PREVIEW_LENGTH = 500
 
 # =============================================================================
-# Gold Layer - AI Summary
-# =============================================================================
-
-# LLM 모델명
-LLM_MODEL_NAME = "databricks-meta-llama-3-3-70b-instruct"
-
-# AI 요약 프롬프트
-AI_SUMMARY_PROMPT = (
-    "다음 보험 문서를 한국어로 3~5문장으로 요약하세요. "
-    "핵심 보장 내용, 주요 조건, 대상 독자를 포함하세요.\n\n"
-)
-
-# AI 입력 텍스트 최대 길이 (글자수)
-AI_INPUT_MAX_CHARS = 3000
-
-# AI 출력 최대 토큰 수
-AI_MAX_TOKENS = 300
-
-# =============================================================================
-# Gold Layer - AI Summary 메타데이터 스키마
-# =============================================================================
-# dev_haesung_pipeline_architecture.md 문서에 임시로 정의해두었던 metadata JSON 필드를
-# 이곳으로 옮겨 관리합니다. 필드를 추가/변경/삭제하려면 아래 METADATA_SCHEMA만 수정하면
-# 되며, gold_document_ai_summary.py의 메타데이터 추출 프롬프트는
-# build_metadata_prompt_fields()를 통해 이 정의를 그대로 가져다 씁니다(프롬프트 문자열을
-# 직접 고칠 필요 없음).
-#
-# 필드 항목 구조:
-#   field: 추출할 JSON 키 이름
-#   description: 필드에 대한 한글 설명
-#   options: 허용 값 목록 (자유 텍스트 필드는 None)
-#   is_array: True면 "중 해당하는 것", False/생략이면 "중 택1" 문구를 붙임
-METADATA_SCHEMA = [
-    {
-        "field": "doc_category",
-        "description": "문서 유형",
-        "options": ["약관", "사업방법서", "상품설명서", "언더라이팅가이드", "보험금지급기준", "고객안내문"],
-    },
-    {
-        "field": "insurance_product_type",
-        "description": "보험 상품 유형",
-        "options": ["종신", "정기", "CI", "변액", "연금", "건강", "실손", "해당없음"],
-    },
-    {
-        "field": "related_systems",
-        "description": "관련 시스템 배열",
-        "options": ["보험코어", "언더라이팅", "보상", "CRM", "전자청약", "계리"],
-        "is_array": True,
-    },
-    {
-        "field": "sensitivity_level",
-        "description": "민감도",
-        "options": ["공개", "내부", "민감", "개인정보포함", "의료정보포함"],
-    },
-    {
-        "field": "regulation_reference",
-        "description": "관련 규정 (보험업법 조항, 감독규정 등. 없으면 null)",
-        "options": None,
-    },
-]
-
-
-def build_metadata_prompt_fields() -> str:
-    """METADATA_SCHEMA를 LLM 프롬프트에 삽입할 필드 설명 텍스트로 변환합니다.
-
-    METADATA_SCHEMA를 수정하면 ai_query / 고객사 LLM API 프롬프트에 자동 반영됩니다.
-    """
-    lines = []
-    for field in METADATA_SCHEMA:
-        line = f"- {field['field']}: {field['description']}"
-        options = field.get("options")
-        if options:
-            choice_text = "/".join(options)
-            suffix = "중 해당하는 것" if field.get("is_array") else "중 택1"
-            line += f" ({choice_text} {suffix})"
-        lines.append(line)
-    return "\n".join(lines)
-
-
-# =============================================================================
-# Gold Layer - AI Summary (OpenAI 외부 API) — 고객사 LLM API 연동 계획으로 대체, 비활성화
-# =============================================================================
-
-# --- 아래 OpenAI 연동 설정은 고객사 제공 LLM API로 대체되어 더 이상 사용하지 않습니다. ---
-# --- 참고용으로 주석 처리하여 남겨둡니다. 활성 설정은 아래 CLIENT_LLM_API_* 를 참고하세요. ---
-#
-# OPENAI_API_KEY_SCOPE = "your-scope"
-# OPENAI_API_KEY_KEY = "openai-api-key"
-# OPENAI_MODEL_NAME = "gpt-4o"
-# OPENAI_MAX_TOKENS = 300
-
-# =============================================================================
-# Gold Layer - AI Summary (고객사 제공 LLM API) — 고객사 개발/전달 완료 후 연동 예정
-# =============================================================================
-
-# 고객사에서 제공하는 LLM API 엔드포인트
-# TODO: 고객사로부터 API 전달받은 후 실제 엔드포인트 URL로 변경
-CLIENT_LLM_API_URL = "http://TODO-client-llm-api/v1/chat/completions"
-
-# 고객사 LLM API 인증키 (Databricks Secrets 권장)
-# 사용 예: dbutils.secrets.get(scope=CLIENT_LLM_API_KEY_SCOPE, key=CLIENT_LLM_API_KEY_KEY)
-CLIENT_LLM_API_KEY_SCOPE = "your-scope"  # TODO: 실제 scope로 변경
-CLIENT_LLM_API_KEY_KEY = "client-llm-api-key"  # TODO: 실제 key로 변경
-
-# 고객사에서 전달할 모델명
-CLIENT_LLM_MODEL_NAME = "TODO"  # TODO: 고객사로부터 전달받은 실제 모델명으로 변경
-
-# 고객사 LLM API 출력 최대 토큰 수
-CLIENT_LLM_MAX_TOKENS = 300
-
-# 고객사 LLM API 타임아웃(초)
-CLIENT_LLM_API_TIMEOUT = 30
-
-# =============================================================================
 # Gold Layer - Document Chunks (시멘틱 청킹)
 # =============================================================================
 
 # 시멘틱 청킹에 사용할 LLM 모델
-CHUNKING_LLM_MODEL = LLM_MODEL_NAME
+CHUNKING_LLM_MODEL = "databricks-meta-llama-3-3-70b-instruct"
 
 # 시멘틱 청킹 시 입력 텍스트 최대 길이 (글자수)
 CHUNKING_INPUT_MAX_CHARS = 2000
@@ -276,7 +162,7 @@ VS_SOURCE_TABLE = "dev_haesung.gold.gold_document_embeddings"
 # 검색 시 반환할 최대 결과 수
 VS_NUM_RESULTS = 5
 
-# RAG 응답 생성용 LLM (기존 LLM_MODEL_NAME 재사용 가능)
+# RAG 응답 생성용 LLM
 RAG_LLM_MODEL = "databricks-meta-llama-3-3-70b-instruct"
 
 # =============================================================================

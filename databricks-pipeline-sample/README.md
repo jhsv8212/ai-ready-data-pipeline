@@ -1,6 +1,6 @@
 # databricks-pipeline-sample
 
-S3에 적재된 보험 문서(MD)를 Auto Loader로 수집하고, 텍스트를 정제·청킹한 뒤 Databricks AI 함수로 요약·임베딩하여 RAG(Retrieval-Augmented Generation) 파이프라인을 구성하는 Lakeflow Spark Declarative Pipeline입니다.
+S3에 적재된 보험 문서(MD)를 Auto Loader로 수집하고, 텍스트를 정제·청킹한 뒤 Vector Search로 임베딩하여 RAG(Retrieval-Augmented Generation) 파이프라인을 구성하는 Lakeflow Spark Declarative Pipeline입니다.
 
 ---
 
@@ -48,26 +48,25 @@ S3 Landing Zone (MD)
 │   (dev_haesung.silver)        │
 └───────────────────────────────┘
         │
-        ├───────────────────────────────────────────────────────────┐
-        ▼                                                           ▼
-┌────────────────────────────────┐          ┌──────────────────────────────────┐
-│ gold_document_ai_summary       │          │   silver_document_chunks         │
-│ (AI 요약 - ai_query)            │          │ (overlap_chunk UDF - RAG용)      │
-│ (dev_haesung.gold)             │          │ (dev_haesung.silver)             │
-└────────────────────────────────┘          └──────────────────────────────────┘
-                                                        │
-                                                        ▼ (Streaming Table)
-                                            ┌──────────────────────────────────┐
-                                            │  gold_document_embeddings        │
-                                            │ (CDF → Vector Search 소스)       │
-                                            │ (dev_haesung.gold)               │
-                                            └──────────────────────────────────┘
-                                                        │
-                                                        ▼ Delta Sync
-                                            ┌──────────────────────────────────┐
-                                            │  Vector Search Index             │
-                                            │ (유사도 검색 - RAG 응답 생성)      │
-                                            └──────────────────────────────────┘
+        ▼
+┌──────────────────────────────────┐
+│   silver_document_chunks         │  Streaming Table — 요소별 오버랩 청킹
+│ (overlap_chunk UDF - RAG용)      │
+│ (dev_haesung.silver)             │
+└──────────────────────────────────┘
+        │
+        ▼ (Streaming Table)
+┌──────────────────────────────────┐
+│  gold_document_embeddings        │
+│ (CDF → Vector Search 소스)       │
+│ (dev_haesung.gold)               │
+└──────────────────────────────────┘
+        │
+        ▼ Delta Sync
+┌──────────────────────────────────┐
+│  Vector Search Index             │
+│ (유사도 검색 - RAG 응답 생성)      │
+└──────────────────────────────────┘
 ```
 
 ---
@@ -81,7 +80,6 @@ S3 Landing Zone (MD)
 | `bronze_documents` | `dev_haesung.bronze` | Streaming Table | S3 MD 원본 바이너리 + staging 메타데이터 |
 | `silver_documents` | `dev_haesung.silver` | Streaming Table | MD `content`를 텍스트로 캐스팅한 원문 (`ai_parse_document()` 미사용, `figure_descriptions`/`page_count`/`parsed_content`는 항상 NULL) |
 | `silver_document_chunks` | `dev_haesung.silver` | Streaming Table | 문서 전체를 `overlap_chunk` UDF로 오버랩 청킹 (RAG 벡터검색용) |
-| `gold_document_ai_summary` | `dev_haesung.gold` | Streaming Table | `ai_query()`로 생성한 문서별 한국어 AI 요약 |
 | `gold_document_embeddings` | `dev_haesung.gold` | Streaming Table | Vector Search 소스 테이블 (CDF 활성화) |
 
 > **S3 버전 관리**: S3 버킷 버저닝은 콘솔에서 활성화되어 있습니다. `staging_document_versions`는 파일 재업로드 시마다 메타데이터(도착 순서/최신 여부)만 추적하며, 과거 버전의 실제 파일 콘텐츠를 S3 VersionId와 연동해 조회/대조하는 기능은 이번 범위에서 제외했습니다. **TODO**: 필요 시 별도 작업으로 진행.
@@ -119,7 +117,6 @@ databricks-pipeline-sample/
     │   ├── silver_documents.py            # ai_parse_document()로 텍스트 추출 (dev_haesung.silver)
     │   └── silver_document_chunks.py      # 요소별 오버랩 청킹 (dev_haesung.silver)
     └── gold/
-        ├── gold_document_ai_summary.py    # AI 요약 (dev_haesung.gold)
         └── gold_document_embeddings.py    # Vector Search 소스 (dev_haesung.gold)
 ```
 
@@ -199,16 +196,7 @@ databricks-pipeline-sample/
 
 대시보드 편집 화면 하단의 **Data** 탭에서 각 데이터셋을 추가합니다.
 
-**데이터셋 1 — Gold Document AI Summary**
-
-1. **Create dataset** 클릭
-2. Dataset name: `Gold Document AI Summary`
-3. 아래 SQL 입력 후 **Save**:
-   ```sql
-   SELECT * FROM `dev_haesung`.`gold`.`gold_document_ai_summary`
-   ```
-
-**데이터셋 2 — Gold Document Chunks**
+**데이터셋 1 — Gold Document Chunks**
 
 1. **Create dataset** 클릭
 2. Dataset name: `Gold Document Chunks`
@@ -217,7 +205,7 @@ databricks-pipeline-sample/
    SELECT * FROM `dev_haesung`.`silver`.`silver_document_chunks`
    ```
 
-**데이터셋 3 — Gold Document Embeddings**
+**데이터셋 2 — Gold Document Embeddings**
 
 1. **Create dataset** 클릭
 2. Dataset name: `Gold Document Embeddings`
@@ -260,15 +248,6 @@ databricks-pipeline-sample/
 2. 데이터셋: `Gold Document Summary`
 3. X축: `source_file_name`
 4. Y축: `page_count` (SUM)
-
-#### 3-4. Table 위젯 — AI 요약 결과
-
-1. 위젯 유형 **Table** 선택
-2. 데이터셋: `Gold Document AI Summary`
-3. 표시할 컬럼 선택:
-   - `document_id`
-   - `page_count`
-   - `ai_summary`
 
 ### 4. 대시보드 게시 (선택)
 
@@ -318,13 +297,10 @@ S3 Landing Zone에 새 MD 파일이 적재되면, 마지막 파일 변경 후 5�
 | 함수 | 위치 | 모델/버전 | 설명 |
 |---|---|---|---|
 | `ai_parse_document()` | silver_documents.py | v2.0 | **(비활성)** MD 전환으로 주석 처리됨. PDF 바이너리에서 구조화된 텍스트·표·그림 요소 추출 — PDF 복귀 시 재활성화 |
-| `ai_query()` | gold_document_ai_summary.py | `databricks-meta-llama-3-3-70b-instruct` | 문서별 한국어 3\~5문장 요약 생성 (figure 설명 포함) |
 | `ai_query()` | gold_document_chunks.py | `databricks-meta-llama-3-3-70b-instruct` | 텍스트 요소 시멘틱 청킹 (의미 단위 분할) |
 | — | gold_document_embeddings.py | `databricks-qwen3-embedding-0-6b` | Vector Search가 chunk_content에서 자동 임베딩 (파이프라인에서 제거됨) |
 
 > **참고**: 청킹(`silver_document_chunks.py`)은 AI 함수가 아닌 `overlap_chunk` Python UDF(슬라이딩 윈도우 방식)로 수행되며, Silver 단계까지는 AI 함수를 전혀 사용하지 않습니다.
->
-> **참고**: `gold_document_ai_summary.py`에는 OpenAI API 기반 요약 코드가 주석 처리되어 있으며, API 키 발급 후 활성화할 수 있습니다.
 
 ---
 
@@ -382,9 +358,7 @@ results = vsc.get_index(
 | `S3_LANDING_PATH_DEFAULT` | S3 경로 | Bronze 수집 기본 경로 |
 | `AI_PARSE_DOCUMENT_VERSION` | `"2.0"` | ai_parse_document 버전 (현재 비활성 - MD 전환으로 미사용, PDF 복귀 시 사용) |
 | `TEXT_PREVIEW_LENGTH` | `500` | 텍스트 미리보기 길이 |
-| `LLM_MODEL_NAME` | `databricks-meta-llama-3-3-70b-instruct` | AI 요약·키워드·메타데이터 추출용 LLM |
-| `AI_INPUT_MAX_CHARS` | `3000` | AI 입력 최대 글자수 |
-| `AI_MAX_TOKENS` | `300` | AI 출력 최대 토큰 |
+| `CHUNKING_LLM_MODEL` | `databricks-meta-llama-3-3-70b-instruct` | 시멘틱 청킹용 LLM |
 | `CHUNK_SIZE` | `500` | 청크 크기 (글자수) |
 | `CHUNK_OVERLAP` | `100` | 청크 간 중복 |
 | `EMBEDDING_MODEL_ENDPOINT` | `databricks-qwen3-embedding-0-6b` | 임베딩 모델 |

@@ -5,9 +5,10 @@
   - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - Vector Search 인덱스의 소스 테이블로 사용
   - [기존 방식] 임베딩은 Vector Search가 chunk_content 컬럼에서 직접 계산 (embedding_source_columns 방식)
-  - [신규 방식 - 연동 준비] 다른 팀에서 개발 중인 bge-m3 임베딩 FastAPI 서비스가 완료되면,
-    이 파이프라인에서 chunk_content를 직접 API로 호출해 임베딩 벡터를 계산/저장하는 방식
-    (embedding_vector_column 방식)으로 전환할 예정이다. 관련 준비 코드는 아래
+  - [확정 방식 - 임베딩 서버 개발 진행 중] 다른 팀이 개발 중인 bge-m3 임베딩 FastAPI 서비스가
+    완료되는 대로, 이 파이프라인에서 chunk_content를 직접 API로 호출해 임베딩 벡터를 계산/저장하고
+    (embedding_vector_column 방식) Databricks Vector Search로 인덱스를 생성해 그 엔드포인트를
+    에이전트가 직접 호출(similarity_search)하는 구조로 전환하기로 확정되었다. 관련 준비 코드는 아래
     `embed_with_bge_m3_api` 부분에 주석 처리되어 있으며, 서비스 개발 완료 후 주석을 해제하고
     config.py의 EMBEDDING_API_* 값을 실제 값으로 설정하면 된다.
 
@@ -103,7 +104,7 @@ def _generate_gold_document_embeddings(category: str):
 
     @dp.table(
         name=f"gold.`{category}_gold_document_embeddings`",
-        comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - 임베딩은 Vector Search가 chunk_content에서 자동 계산",
+        comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - 현재는 Vector Search가 chunk_content에서 자동 계산, bge-m3 API 전환 확정(서비스 개발 완료 대기)",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
             chunk_id STRING NOT NULL,

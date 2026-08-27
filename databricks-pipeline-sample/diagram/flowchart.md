@@ -13,7 +13,6 @@ flowchart TD
     end
 
     subgraph Gold["Gold Layer (카테고리별 × N)"]
-        GAS["{category}_gold_document_ai_summary<br/><i>Streaming Table</i>"]
         GE["{category}_gold_document_embeddings<br/><i>Streaming Table</i>"]
     end
 
@@ -26,7 +25,6 @@ flowchart TD
     ST -->|stream-static join<br/>source_file.startswith category_path| B
     B -->|content.cast STRING| S
     S -->|문서 전체 오버랩 청킹| SC
-    S -->|ai_query 요약/키워드/메타데이터| GAS
     SC -->|chunk_id 할당| GE
     GE -->|Delta Sync| GEI
 

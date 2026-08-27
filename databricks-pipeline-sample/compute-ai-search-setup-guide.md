@@ -58,7 +58,7 @@
 
 | 모델 | 용도 | 사용 위치 |
 |---|---|---|
-| `databricks-meta-llama-3-3-70b-instruct` | AI 요약, 시멘틱 청킹 | gold_document_ai_summary, gold_document_chunks |
+| `databricks-meta-llama-3-3-70b-instruct` | 시멘틱 청킹 | gold_document_chunks |
 | `databricks-qwen3-embedding-0-6b` | 벡터 임베딩 (Vector Search 자동 계산) | Vector Search 인덱스 |
 
 ### 콘솔에서 확인하기
