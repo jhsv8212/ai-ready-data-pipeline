@@ -8,7 +8,7 @@
 - **테이블 네이밍**: `staging`은 전 카테고리 공통 단일 테이블(`staging_documents`)이고, `bronze`/`silver`/`gold`는 카테고리별로 동적 생성되는 `{카테고리명}_{원래 테이블명}` 구조입니다 (예: `CRM_bronze_documents`, `CRM_silver_documents`, `CRM_gold_document_embeddings`). `config.get_category_list()`가 파이프라인 그래프 빌드 시점에 S3 Landing Zone(`보험/` 바로 아래 1뎁스 폴더)을 스캔해 카테고리 목록을 얻고, 각 bronze/silver/gold 파이프라인 파일이 그 목록으로 for 루프를 돌며 카테고리마다 테이블을 생성합니다 — 자세한 내용은 [staging_documents 섹션](#1-staging_documents)의 참고 참조.
 - **Pipeline:** `databricks-pipeline-sample` (보험 문서 RAG 파이프라인)
 - **Pipeline ID:** `454e3aef-72c9-48da-80f7-4910933e8b4e`
-- **Last updated:** 2026-08-27 (Vector Search 인덱싱과 무관한 `gold_document_ai_summary.py`(AI 요약/키워드/메타데이터 생성)를 파이프라인에서 제거 — 관련 `config.py` 설정 및 문서/다이어그램도 함께 정리. Gold 레이어는 `gold_document_embeddings.py`만 남았으며 여전히 일시 비활성화 상태)
+- **Last updated:** 2026-08-27 (Gold 레이어는 `gold_document_embeddings.py`만 남았으며 여전히 일시 비활성화 상태)
 
 S3 Landing Zone(`s3://a-s3-dbx-dev-ane2-aegis01/보험/`)에 적재된 보험 문서(MD)를 Auto Loader로 수집하고, 텍스트를 정제·청킹하는 Lakeflow Declarative Pipeline입니다. Bronze/Silver 레이어는 활성 상태로 운영 중이며, Gold 레이어(임베딩·Vector Search 동기화)는 아래 **파이프라인 현재 상태** 참고와 같이 외부 연동 대기로 일시 비활성화되어 있습니다.
 
@@ -16,8 +16,6 @@ S3 Landing Zone(`s3://a-s3-dbx-dev-ane2-aegis01/보험/`)에 적재된 보험 �
 
 > **파이프라인 현재 상태 (Gold 레이어 일시 비활성화)**: `gold_document_embeddings.py`가 최상위 `for _category in config.get_category_list(): ...` 테이블 생성 루프와 `import config`가 주석 처리되어 있어, 현재 파이프라인 그래프에는 **Gold 레이어 테이블이 생성되지 않습니다**. 함수 정의(`_generate_gold_document_embeddings`) 자체는 코드에 남아 있으므로 아래 외부 연동이 준비되면 for 루프 주석만 해제해 즉시 재활성화할 수 있는 구조입니다.
 > - **임베딩**: 기존에는 Vector Search가 `chunk_content`에서 자동으로 임베딩을 계산(`databricks-qwen3-embedding-0-6b`, `embedding_source_columns` 방식)했으나, 다른 팀이 개발 중인 외부 bge-m3 FastAPI 임베딩 서비스(현재 개발 진행 중)가 완료되면 파이프라인이 직접 API를 호출해 `embedding` 컬럼에 벡터를 저장하는 방식(`embedding_vector_column`)으로 전환하기로 확정되었습니다. 이렇게 생성된 Vector Search 인덱스 엔드포인트는 에이전트가 직접 호출(`similarity_search`)하는 구조입니다 — 자세한 내용은 [5. gold_document_embeddings 섹션](#5-카테고리명_gold_document_embeddings) 참고.
->
-> **(제거됨) AI 요약/키워드/메타데이터**: 문서별 AI 요약·키워드·메타데이터를 생성하던 `gold_document_ai_summary.py`는 Vector Search 인덱싱 흐름과 무관한 별도 산출물이었으며, 어떤 다운스트림 테이블도 이를 참조하지 않아 파이프라인에서 제거했습니다. 관련 `config.py` 설정(`METADATA_SCHEMA`, `CLIENT_LLM_API_*` 등)도 함께 정리했습니다.
 
 ---
 
@@ -61,11 +59,6 @@ sequenceDiagram
     Chunks->>Embeddings: {category}_silver_document_chunks 스트림 read
     Embeddings->>Embeddings: chunk_id = md5(document_id, element_idx, chunk_idx)
     Note over Embeddings: bge-m3 FastAPI 연동 준비 코드 존재(주석 처리)<br/>완료 시 embedding 컬럼에 벡터 저장 예정
-
-    Embeddings->>VS: Delta Sync (CDF 기반, 카테고리별 인덱스)
-    VS->>VS: chunk_content 자동 임베딩 [현재 방식]<br/>(databricks-qwen3-embedding-0-6b)<br/>→ bge-m3 API 임베딩으로 전환 확정 [연동 대기]
-
-    Note over VS: 에이전트가 Vector Search 인덱스<br/>엔드포인트를 직접 호출 (similarity_search)<br/>(Gold 재활성화 및 bge-m3 연동 이후 유효)
 ```
 
 ---
