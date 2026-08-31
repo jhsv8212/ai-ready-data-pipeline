@@ -48,6 +48,9 @@
 
   3. 인덱스 동기화는 소스 테이블 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
 """
+import sys
+sys.path.insert(0, "/Workspace/Shared/rag_document_processing_pipeline_f237c77c/transformations")
+
 import pandas as pd
 import requests
 from pyspark import pipelines as dp
@@ -57,6 +60,13 @@ from pyspark.sql.types import ArrayType, FloatType
 
 import config
 
+# Worker 노드에서 config 모듈을 import할 수 없으므로,
+# UDF가 캡처할 수 있도록 plain 값으로 추출
+_EMBEDDING_API_URL = config.EMBEDDING_API_URL
+_EMBEDDING_API_KEY = config.EMBEDDING_API_KEY
+_EMBEDDING_API_TIMEOUT = config.EMBEDDING_API_TIMEOUT
+_EMBEDDING_API_BATCH_SIZE = config.EMBEDDING_API_BATCH_SIZE
+
 
 # =============================================================================
 # bge-m3 FastAPI 임베딩 서비스 연동
@@ -64,13 +74,13 @@ import config
 def _call_embedding_api(texts: list) -> list:
     """bge-m3 FastAPI 서비스를 호출하여 텍스트 목록의 임베딩 벡터를 반환합니다."""
     response = requests.post(
-        config.EMBEDDING_API_URL,
+        _EMBEDDING_API_URL,
         headers={
-            "x-api-key": config.EMBEDDING_API_KEY,
+            "x-api-key": _EMBEDDING_API_KEY,
             "Content-Type": "application/json",
         },
         json={"texts": texts},
-        timeout=config.EMBEDDING_API_TIMEOUT,
+        timeout=_EMBEDDING_API_TIMEOUT,
     )
     response.raise_for_status()
     return response.json()["embeddings"]
@@ -79,7 +89,7 @@ def _call_embedding_api(texts: list) -> list:
 @pandas_udf(ArrayType(FloatType()))
 def embed_with_bge_m3_api(texts: pd.Series) -> pd.Series:
     """chunk_content 컬럼을 bge-m3 FastAPI 서비스에 배치 전송하여 임베딩 벡터로 변환합니다."""
-    batch_size = config.EMBEDDING_API_BATCH_SIZE
+    batch_size = _EMBEDDING_API_BATCH_SIZE
     text_list = texts.fillna("").tolist()
     results = []
     for start in range(0, len(text_list), batch_size):
