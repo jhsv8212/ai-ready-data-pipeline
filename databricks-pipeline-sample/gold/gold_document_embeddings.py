@@ -4,13 +4,10 @@
 출력: {카테고리명}_gold_document_embeddings (Streaming Table, 카테고리별로 동적 생성)
   - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - Vector Search 인덱스의 소스 테이블로 사용
-  - [기존 방식] 임베딩은 Vector Search가 chunk_content 컬럼에서 직접 계산 (embedding_source_columns 방식)
-  - [확정 방식 - 임베딩 서버 개발 진행 중] 다른 팀이 개발 중인 bge-m3 임베딩 FastAPI 서비스가
-    완료되는 대로, 이 파이프라인에서 chunk_content를 직접 API로 호출해 임베딩 벡터를 계산/저장하고
-    (embedding_vector_column 방식) Databricks Vector Search로 인덱스를 생성해 그 엔드포인트를
-    에이전트가 직접 호출(similarity_search)하는 구조로 전환하기로 확정되었다. 관련 준비 코드는 아래
-    `embed_with_bge_m3_api` 부분에 주석 처리되어 있으며, 서비스 개발 완료 후 주석을 해제하고
-    config.py의 EMBEDDING_API_* 값을 실제 값으로 설정하면 된다.
+  - [신규 방식] bge-m3 임베딩 FastAPI 서비스가 연동 완료되어, 이 파이프라인에서
+    chunk_content를 직접 API로 호출해 임베딩 벡터를 계산/저장한다 (embedding_vector_column
+    방식). Databricks Vector Search로 인덱스를 생성해 그 엔드포인트를 에이전트가 직접
+    호출(similarity_search)하는 구조로 전환한다.
 
 [Vector Search 인덱스 동기화 안내]
   이 테이블들을 생성한 뒤, 카테고리별로 아래 단계를 반복해 Vector Search 인덱스를 설정하세요
@@ -36,7 +33,7 @@
              }],
          )
 
-  2-b. [신규 방식 - bge-m3 FastAPI 연동 완료 후 사용] 이 파이프라인이 미리 계산해 저장한
+  2-b. [신규 방식] 이 파이프라인이 미리 계산해 저장한
        embedding 컬럼을 그대로 사용하는 Delta Sync 인덱스 생성:
      for category in config.get_category_list():
          vsc.create_delta_sync_index(
@@ -51,52 +48,47 @@
 
   3. 인덱스 동기화는 소스 테이블 업데이트 시 자동 또는 수동(triggered)으로 실행됩니다.
 """
+import pandas as pd
+import requests
 from pyspark import pipelines as dp
 from pyspark.sql import functions as F
+from pyspark.sql.functions import pandas_udf
+from pyspark.sql.types import ArrayType, FloatType
 
-# import config  # 파이프라인 비활성화 - 골드 레이어 임시 중단
+import config
 
 
 # =============================================================================
-# bge-m3 FastAPI 임베딩 서비스 연동 (다른 팀 개발 완료 후 사용)
+# bge-m3 FastAPI 임베딩 서비스 연동
 # =============================================================================
-# --- 아래 코드는 다른 팀의 bge-m3 임베딩 FastAPI 서비스 개발이 완료된 후 주석을 해제하여 ---
-# --- 사용합니다. 사용 전 config.py의 EMBEDDING_API_* 값을 실제 값으로 설정하고,        ---
-# --- 요청/응답 페이로드를 실제 API 스펙에 맞게 수정해야 합니다(아래는 가정된 스펙).    ---
-# --- 사용 시 아래 @dp.table(...) 의 schema에 `embedding ARRAY<FLOAT>,` 컬럼을 추가하고 ---
-# --- select()에도 "embedding"을 포함해야 합니다.                                     ---
-#
-# import pandas as pd
-# import requests
-# from pyspark.sql.functions import pandas_udf
-# from pyspark.sql.types import ArrayType, FloatType
-#
-#
-# def _call_embedding_api(texts: list) -> list:
-#     """bge-m3 FastAPI 서비스를 호출하여 텍스트 목록의 임베딩 벡터를 반환합니다."""
-#     response = requests.post(
-#         config.EMBEDDING_API_URL,
-#         json={"model": config.EMBEDDING_API_MODEL_NAME, "texts": texts},
-#         timeout=config.EMBEDDING_API_TIMEOUT,
-#     )
-#     response.raise_for_status()
-#     # TODO: 실제 응답 스키마에 맞게 파싱 로직 수정 (아래는 {"embeddings": [[...], ...]} 형태 가정)
-#     return response.json()["embeddings"]
-#
-#
-# @pandas_udf(ArrayType(FloatType()))
-# def embed_with_bge_m3_api(texts: pd.Series) -> pd.Series:
-#     """chunk_content 컬럼을 bge-m3 FastAPI 서비스에 배치 전송하여 임베딩 벡터로 변환합니다."""
-#     batch_size = config.EMBEDDING_API_BATCH_SIZE
-#     text_list = texts.fillna("").tolist()
-#     results = []
-#     for start in range(0, len(text_list), batch_size):
-#         batch = text_list[start:start + batch_size]
-#         try:
-#             results.extend(_call_embedding_api(batch))
-#         except Exception:
-#             results.extend([None] * len(batch))  # 실패한 배치는 NULL로 유지
-#     return pd.Series(results, index=texts.index)
+def _call_embedding_api(texts: list) -> list:
+    """bge-m3 FastAPI 서비스를 호출하여 텍스트 목록의 임베딩 벡터를 반환합니다."""
+    response = requests.post(
+        config.EMBEDDING_API_URL,
+        headers={
+            "x-api-key": config.EMBEDDING_API_KEY,
+            "Content-Type": "application/json",
+        },
+        json={"texts": texts},
+        timeout=config.EMBEDDING_API_TIMEOUT,
+    )
+    response.raise_for_status()
+    return response.json()["embeddings"]
+
+
+@pandas_udf(ArrayType(FloatType()))
+def embed_with_bge_m3_api(texts: pd.Series) -> pd.Series:
+    """chunk_content 컬럼을 bge-m3 FastAPI 서비스에 배치 전송하여 임베딩 벡터로 변환합니다."""
+    batch_size = config.EMBEDDING_API_BATCH_SIZE
+    text_list = texts.fillna("").tolist()
+    results = []
+    for start in range(0, len(text_list), batch_size):
+        batch = text_list[start:start + batch_size]
+        try:
+            results.extend(_call_embedding_api(batch))
+        except Exception:
+            results.extend([None] * len(batch))  # 실패한 배치는 NULL로 유지
+    return pd.Series(results, index=texts.index)
 
 
 def _generate_gold_document_embeddings(category: str):
@@ -104,7 +96,7 @@ def _generate_gold_document_embeddings(category: str):
 
     @dp.table(
         name=f"gold.`{category}_gold_document_embeddings`",
-        comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - 현재는 Vector Search가 chunk_content에서 자동 계산, bge-m3 API 전환 확정(서비스 개발 완료 대기)",
+        comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - bge-m3 FastAPI 서비스로 임베딩 벡터를 계산/저장 (embedding_vector_column 방식)",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
             chunk_id STRING NOT NULL,
@@ -117,10 +109,10 @@ def _generate_gold_document_embeddings(category: str):
             chunk_content STRING,
             chunk_type STRING,
             chunked_at TIMESTAMP,
+            embedding ARRAY<FLOAT>,
             CONSTRAINT `pk_{category}_gold_embeddings` PRIMARY KEY (chunk_id),
             CONSTRAINT `fk_{category}_embeddings_document` FOREIGN KEY (document_id) REFERENCES silver.`{category}_silver_documents`(document_id)
         """,
-        # bge-m3 FastAPI 연동 완료 후 위 schema에 `embedding ARRAY<FLOAT>,` 컬럼을 추가하세요.
     )
     def gold_document_embeddings():
         df = (
@@ -133,11 +125,8 @@ def _generate_gold_document_embeddings(category: str):
                     F.col("chunk_idx").cast("string")
                 ))
             )
+            .withColumn("embedding", embed_with_bge_m3_api(F.col("chunk_content")))
         )
-
-        # --- bge-m3 FastAPI 임베딩 서비스 연동 준비 (다른 팀 개발 완료 후 주석 해제) ---
-        # df = df.withColumn("embedding", embed_with_bge_m3_api(F.col("chunk_content")))
-        # --- 여기까지 ---
 
         return df.select(
             "chunk_id",
@@ -150,11 +139,11 @@ def _generate_gold_document_embeddings(category: str):
             "chunk_content",
             "chunk_type",
             "chunked_at",
-            # "embedding",  # bge-m3 FastAPI 연동 완료 후 주석 해제
+            "embedding",
         )
 
     return gold_document_embeddings
 
 
-# for _category in config.get_category_list():
-#     _generate_gold_document_embeddings(_category)
+for _category in config.get_category_list():
+    _generate_gold_document_embeddings(_category)

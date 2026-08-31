@@ -150,7 +150,7 @@ VS_ENDPOINT_NAME = "document-search-endpoint"
 VS_INDEX_NAME = "dev_haesung.gold.gold_document_embeddings_index"
 
 # 임베딩 모델 엔드포인트 (Delta Sync 자동 임베딩용)
-# --- bge-m3 FastAPI 서비스 연동 계획으로 대체되어 더 이상 사용하지 않습니다. ---
+# --- bge-m3 FastAPI 서비스 연동으로 대체되어 더 이상 사용하지 않습니다. ---
 # EMBEDDING_MODEL_ENDPOINT = "databricks-qwen3-embedding-0-6b"
 
 # 임베딩 대상 컨럼명
@@ -166,12 +166,14 @@ VS_NUM_RESULTS = 5
 RAG_LLM_MODEL = "databricks-meta-llama-3-3-70b-instruct"
 
 # =============================================================================
-# Gold Layer - Embedding (외부 bge-m3 FastAPI 서비스) — 다른 팀 개발 완료 후 연동 예정
+# Gold Layer - Embedding (외부 bge-m3 FastAPI 서비스)
 # =============================================================================
 
-# 다른 팀에서 개발 중인 bge-m3 임베딩 FastAPI 서비스 엔드포인트
-# TODO: 다른 팀 개발 완료 후 실제 엔드포인트 URL로 변경
-EMBEDDING_API_URL = "http://TODO-bge-m3-embedding-api/embed"
+# bge-m3 임베딩 FastAPI 서비스 엔드포인트
+EMBEDDING_API_URL = "http://84.14.160.10:8000/embed"
+
+# 임베딩 API 인증 키 (x-api-key 헤더) — dev 환경용 키
+EMBEDDING_API_KEY = "ai_ready_data_embedding_dev"
 
 # 임베딩 모델명
 EMBEDDING_API_MODEL_NAME = "bge-m3"
