@@ -1,0 +1,80 @@
+# Declarative Automation Bundle (DAB) 설정
+# RAG Document Processing Pipeline
+bundle:
+  name: rag_document_processing_pipeline
+
+variables:
+  catalog:
+    description: "Unity Catalog 카탈로그명"
+    default: "a_ws_ard_dev_ane2_01"
+  schema:
+    description: "Unity Catalog 스키마명"
+    default: "default"
+  s3_landing_path:
+    description: "S3 Landing Zone 경로"
+    default: "s3://a-s3-dbx-dev-ane2-aegis01/보험/"
+
+resources:
+  pipelines:
+    rag_document_processing:
+      name: "rag_document_processing_pipeline"
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      target: "${var.catalog}.${var.schema}"
+      channel: "CURRENT"
+      development: true
+      continuous: false
+      configuration:
+        s3_landing_path: ${var.s3_landing_path}
+      libraries:
+        - file:
+            path: ./transformations/staging/staging_document.py
+        - file:
+            path: ./transformations/staging/staging_document_versions.py
+        - file:
+            path: ./transformations/bronze/bronze_documents.py
+        - file:
+            path: ./transformations/silver/silver_documents.py
+        - file:
+            path: ./transformations/silver/silver_document_chunks.py
+        - file:
+            path: ./transformations/gold/gold_document_embeddings.py
+
+  jobs:
+    rag_pipeline_job:
+      name: "rag_document_processing_job"
+      tasks:
+        - task_key: run_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.rag_document_processing.id}
+
+        - task_key: setup_vector_search
+          depends_on:
+            - task_key: run_pipeline
+          notebook_task:
+            notebook_path: ./setup_vector_search_index.py
+          new_cluster:
+            spark_version: "15.4.x-scala2.12"
+            num_workers: 0
+            node_type_id: "i3.xlarge"
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://sslife-ard-t.cloud.databricks.com
+    variables:
+      catalog: "a_ws_ard_dev_ane2_01"
+
+  prod:
+    mode: production
+    workspace:
+      host: https://sslife-ard-t.cloud.databricks.com
+    variables:
+      catalog: "a_ws_ard_dev_ane2_01"  # TODO: 운영 카탈로그로 변경
+    resources:
+      pipelines:
+        rag_document_processing:
+          development: false
+          continuous: false
