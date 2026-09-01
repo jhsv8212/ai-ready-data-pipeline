@@ -72,16 +72,17 @@ def overlap_chunk(text, chunk_size, chunk_overlap):
     return chunks
 
 
-def _generate_silver_document_chunks(category: str):
-    """카테고리 하나에 대한 {category}_silver_document_chunks 테이블을 정의한다."""
+def _generate_silver_document_chunks(category: str, table_name: str):
+    """카테고리 하나에 대한 {table_name}_silver_document_chunks 테이블을 정의한다."""
 
     @dp.table(
-        name=f"silver.`{category}_silver_document_chunks`",
+        name=f"silver.`{table_name}_silver_document_chunks`",
         comment=f"'{category}' 카테고리 문서 텍스트 오버랩 청킹 (Silver Layer) - RAG 벡터검색용, overlap_chunk UDF 사용",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
             document_id STRING NOT NULL,
             source_file_name STRING,
+            source_file STRING,
             element_type STRING,
             element_page INT,
             element_idx INT,
@@ -89,14 +90,14 @@ def _generate_silver_document_chunks(category: str):
             chunk_content STRING,
             chunk_type STRING,
             chunked_at TIMESTAMP,
-            CONSTRAINT `fk_{category}_chunks_document` FOREIGN KEY (document_id) REFERENCES silver.`{category}_silver_documents`(document_id)
+            CONSTRAINT `fk_{table_name}_chunks_document` FOREIGN KEY (document_id) REFERENCES silver.`{table_name}_silver_documents`(document_id)
         """,
     )
     def silver_document_chunks():
         chunk_size = config.CHUNK_SIZE
         chunk_overlap = config.CHUNK_OVERLAP
 
-        df = spark.readStream.table(f"silver.`{category}_silver_documents`")
+        df = spark.readStream.table(f"silver.`{table_name}_silver_documents`")
 
         # --- 기존 ai_parse_document elements 기반 요소 추출 (PDF 전용) - MD 전환으로 비활성화 ---
         # # 1. parsed_content에서 elements 배열 추출 및 posexplode
@@ -146,6 +147,7 @@ def _generate_silver_document_chunks(category: str):
         df = df.select(
             "document_id",
             "source_file_name",
+            "source_file",
             F.lit("text").alias("element_type"),
             F.lit(None).cast("int").alias("element_page"),
             F.lit(0).alias("element_idx"),
@@ -210,6 +212,7 @@ def _generate_silver_document_chunks(category: str):
         df = df.select(
             "document_id",
             "source_file_name",
+            "source_file",
             "element_type",
             "element_page",
             "element_idx",
@@ -234,6 +237,7 @@ def _generate_silver_document_chunks(category: str):
         return df.select(
             "document_id",
             "source_file_name",
+            "source_file",
             "element_type",
             "element_page",
             "element_idx",
@@ -247,4 +251,4 @@ def _generate_silver_document_chunks(category: str):
 
 
 for _category in config.get_category_list():
-    _generate_silver_document_chunks(_category)
+    _generate_silver_document_chunks(_category, config.get_table_name(_category))

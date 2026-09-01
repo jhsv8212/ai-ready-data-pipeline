@@ -4,7 +4,6 @@
 출력: {카테고리명}_silver_documents (Streaming Table, 카테고리별로 동적 생성)
   - config.get_category_list()로 스캔한 카테고리마다 별도 테이블을 생성한다.
   - full_text: MD 파일 원문 텍스트 (content를 STRING으로 디코딩)
-  - figure_descriptions / page_count / parsed_content: MD 전환으로 비활성 (항상 NULL)
 
 참고: 원래 PDF + ai_parse_document() 기반으로 개발되었으나, 현재는 MD 파일이 업로드되는 것을
 전제로 ai_parse_document() 호출 없이 content를 바로 텍스트로 사용합니다. 추후 PDF로 다시
@@ -18,26 +17,23 @@ from pyspark.sql import functions as F
 import config
 
 
-def _generate_silver_documents(category: str):
-    """카테고리 하나에 대한 {category}_silver_documents 테이블을 정의한다."""
+def _generate_silver_documents(category: str, table_name: str):
+    """카테고리 하나에 대한 {table_name}_silver_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"silver.`{category}_silver_documents`",
+        name=f"silver.`{table_name}_silver_documents`",
         comment=f"'{category}' 카테고리 MD 파일 텍스트를 추출·정제한 데이터 (Silver Layer) - ai_parse_document() 미사용",
         schema=f"""
             document_id STRING NOT NULL,
             source_file_name STRING,
             source_file STRING,
             full_text STRING,
-            figure_descriptions STRING,
-            page_count INT,
-            parsed_content VARIANT,
             file_size_bytes BIGINT,
             file_modified_at TIMESTAMP,
             ingested_at TIMESTAMP,
             processed_at TIMESTAMP,
             silver_layer STRING,
-            CONSTRAINT `pk_{category}_silver_documents` PRIMARY KEY (document_id)
+            CONSTRAINT `pk_{table_name}_silver_documents` PRIMARY KEY (document_id)
         """,
     )
     def silver_documents():
@@ -133,15 +129,11 @@ def _generate_silver_documents(category: str):
 
         # MD 파일: ai_parse_document() 없이 content를 바로 텍스트로 디코딩
         return (
-            spark.readStream.table(f"bronze.`{category}_bronze_documents`")
+            spark.readStream.table(f"bronze.`{table_name}_bronze_documents`")
             .withColumn("full_text", F.col("content").cast("STRING"))
             # 연속 공백/빈 행 정리
             .withColumn("full_text", F.regexp_replace("full_text", "\\n{3,}", "\n\n"))
             .withColumn("full_text", F.trim("full_text"))
-            # PDF 전용 필드 - MD에는 해당 없음 (스키마 호환을 위해 NULL 유지)
-            .withColumn("figure_descriptions", F.lit(None).cast("string"))
-            .withColumn("page_count", F.lit(None).cast("int"))
-            .withColumn("parsed_content", F.expr("CAST(NULL AS VARIANT)"))
             .withColumn("processed_at", F.current_timestamp())
             .withColumn("silver_layer", F.lit("silver"))
             # 빈 텍스트 문서 제외
@@ -151,9 +143,6 @@ def _generate_silver_documents(category: str):
                 "source_file_name",
                 "source_file",
                 "full_text",
-                "figure_descriptions",
-                "page_count",
-                "parsed_content",
                 "file_size_bytes",
                 "file_modified_at",
                 "ingested_at",
@@ -166,4 +155,4 @@ def _generate_silver_documents(category: str):
 
 
 for _category in config.get_category_list():
-    _generate_silver_documents(_category)
+    _generate_silver_documents(_category, config.get_table_name(_category))

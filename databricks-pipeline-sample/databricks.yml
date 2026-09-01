@@ -66,6 +66,7 @@ targets:
       host: https://sslife-ard-t.cloud.databricks.com
     variables:
       catalog: "a_ws_ard_dev_ane2_01"
+      schema: "default"
 
   prod:
     mode: production
@@ -73,6 +74,7 @@ targets:
       host: https://sslife-ard-t.cloud.databricks.com
     variables:
       catalog: "a_ws_ard_dev_ane2_01"  # TODO: 운영 카탈로그로 변경
+      schema: "default"                 # TODO: 운영 스키마로 변경
     resources:
       pipelines:
         rag_document_processing:

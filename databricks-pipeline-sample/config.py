@@ -38,6 +38,78 @@ def get_category_list(s3_landing_path: str = None) -> list:
     )
 
 # =============================================================================
+# 카테고리 한글→영문 매핑 (테이블명/인덱스명용)
+# =============================================================================
+
+CATEGORY_NAME_MAP = {
+    "CRM": "crm",
+    "발급": "issuance",
+    "방카슈랑스": "bancassurance",
+    "변경": "change",
+    "보전": "bojeon",
+    "사고보험금": "accident_claim",
+    "상품": "product",
+    "언더라이팅": "underwriting",
+    "업무별_연락처": "dept_contacts",
+    "제지급금": "disbursement",
+    "콜센터지침": "call_center_guide",
+}
+
+
+def get_table_name(category: str) -> str:
+    """한글 카테고리명을 테이블용 영문명으로 변환합니다.
+
+    매핑에 없는 카테고리는 소문자로 변환하여 반환합니다.
+    """
+    return CATEGORY_NAME_MAP.get(category, category.lower())
+
+
+# =============================================================================
+# doc_path 기반 에이전트 매핑
+# =============================================================================
+
+# doc_path → agent_id 매핑 (매칭되지 않는 경로는 "Default")
+DOC_PATH_AGENT_MAP = {
+    "단체신계약": [
+        "보험>언더라이팅>단체언더라이팅",
+        "보험>언더라이팅>언더_공통",
+        "보험>변경>단체변경",
+    ],
+    "개인신계약": [
+        "보험>언더라이팅>개인언더라이팅",
+    ],
+    "상품": [
+        "보험>상품",
+    ],
+    "사고보험금": [
+        "보험>사고보험금",
+    ],
+}
+
+DEFAULT_AGENT_ID = "Default"
+
+
+def get_agent_id(doc_path: str) -> str:
+    """doc_path 메타데이터를 기반으로 에이전트 ID를 반환합니다.
+
+    정확히 일치하는 경로를 먼저 찾고, 없으면 상위 경로(prefix)가
+    매칭되는지 확인합니다. 어디에도 매칭되지 않으면 Default를 반환합니다.
+    """
+    if not doc_path:
+        return DEFAULT_AGENT_ID
+
+    for agent_id, paths in DOC_PATH_AGENT_MAP.items():
+        for path_prefix in paths:
+            # 1. 정확히 일치
+            if doc_path == path_prefix:
+                return agent_id
+            # 2. prefix 매칭 (하위 경로)
+            if doc_path.startswith(path_prefix + ">"):
+                return agent_id
+
+    return DEFAULT_AGENT_ID
+
+# =============================================================================
 # Silver Layer
 # =============================================================================
 

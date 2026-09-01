@@ -20,11 +20,11 @@ from pyspark.sql import functions as F
 import config
 
 
-def _generate_bronze_documents(category: str):
-    """카테고리 하나에 대한 {category}_bronze_documents 테이블을 정의한다."""
+def _generate_bronze_documents(category: str, table_name: str):
+    """카테고리 하나에 대한 {table_name}_bronze_documents 테이블을 정의한다."""
 
     @dp.table(
-        name=f"bronze.`{category}_bronze_documents`",
+        name=f"bronze.`{table_name}_bronze_documents`",
         comment=f"S3 Landing Zone에서 '{category}' 카테고리 문서 파일(MD)을 수집한 원시 바이너리 데이터 (Bronze Layer)",
         schema=f"""
             document_id STRING NOT NULL,
@@ -35,7 +35,7 @@ def _generate_bronze_documents(category: str):
             file_modified_at TIMESTAMP,
             ingested_at TIMESTAMP,
             bronze_layer STRING,
-            CONSTRAINT `pk_{category}_bronze_documents` PRIMARY KEY (document_id)
+            CONSTRAINT `pk_{table_name}_bronze_documents` PRIMARY KEY (document_id)
         """,
     )
     def bronze_documents():
@@ -92,4 +92,4 @@ def _generate_bronze_documents(category: str):
 
 
 for _category in config.get_category_list():
-    _generate_bronze_documents(_category)
+    _generate_bronze_documents(_category, config.get_table_name(_category))

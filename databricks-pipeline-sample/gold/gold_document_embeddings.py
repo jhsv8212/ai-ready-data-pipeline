@@ -67,6 +67,10 @@ _EMBEDDING_API_KEY = config.EMBEDDING_API_KEY
 _EMBEDDING_API_TIMEOUT = config.EMBEDDING_API_TIMEOUT
 _EMBEDDING_API_BATCH_SIZE = config.EMBEDDING_API_BATCH_SIZE
 
+# doc_path → agent_id 매핑 (UDF 직렬화용 plain 값)
+_DOC_PATH_AGENT_MAP = dict(config.DOC_PATH_AGENT_MAP)
+_DEFAULT_AGENT_ID = config.DEFAULT_AGENT_ID
+
 
 # =============================================================================
 # bge-m3 FastAPI 임베딩 서비스 연동
@@ -101,17 +105,29 @@ def embed_with_bge_m3_api(texts: pd.Series) -> pd.Series:
     return pd.Series(results, index=texts.index)
 
 
-def _generate_gold_document_embeddings(category: str):
-    """카테고리 하나에 대한 {category}_gold_document_embeddings 테이블을 정의한다."""
+@F.udf("string")
+def _resolve_agent_id(doc_path: str) -> str:
+    """doc_path 메타데이터를 기반으로 행별 agent_id를 반환하는 UDF입니다."""
+    if not doc_path:
+        return _DEFAULT_AGENT_ID
+    for agent_id, paths in _DOC_PATH_AGENT_MAP.items():
+        for path_prefix in paths:
+            if doc_path == path_prefix or doc_path.startswith(path_prefix + ">"):
+                return agent_id
+    return _DEFAULT_AGENT_ID
 
+
+def _generate_gold_document_embeddings(category: str, table_name: str):
+    """카테고리 하나에 대한 {table_name}_gold_document_embeddings 테이블을 정의한다."""
     @dp.table(
-        name=f"gold.`{category}_gold_document_embeddings`",
+        name=f"gold.`{table_name}_gold_document_embeddings`",
         comment=f"'{category}' 카테고리 Vector Search 소스 테이블 (Gold Layer) - bge-m3 FastAPI 서비스로 임베딩 벡터를 계산/저장 (embedding_vector_column 방식)",
         table_properties={"delta.enableChangeDataFeed": "true"},
         schema=f"""
             chunk_id STRING NOT NULL,
             document_id STRING NOT NULL,
             source_file_name STRING,
+            source_file STRING,
             element_type STRING,
             element_page INT,
             element_idx INT,
@@ -120,13 +136,14 @@ def _generate_gold_document_embeddings(category: str):
             chunk_type STRING,
             chunked_at TIMESTAMP,
             embedding ARRAY<FLOAT>,
-            CONSTRAINT `pk_{category}_gold_embeddings` PRIMARY KEY (chunk_id),
-            CONSTRAINT `fk_{category}_embeddings_document` FOREIGN KEY (document_id) REFERENCES silver.`{category}_silver_documents`(document_id)
+            metadata STRING,
+            CONSTRAINT `pk_{table_name}_gold_embeddings` PRIMARY KEY (chunk_id),
+            CONSTRAINT `fk_{table_name}_embeddings_document` FOREIGN KEY (document_id) REFERENCES silver.`{table_name}_silver_documents`(document_id)
         """,
     )
     def gold_document_embeddings():
         df = (
-            spark.readStream.table(f"silver.`{category}_silver_document_chunks`")
+            spark.readStream.table(f"silver.`{table_name}_silver_document_chunks`")
             .withColumn(
                 "chunk_id",
                 F.md5(F.concat(
@@ -136,12 +153,31 @@ def _generate_gold_document_embeddings(category: str):
                 ))
             )
             .withColumn("embedding", embed_with_bge_m3_api(F.col("chunk_content")))
+            .withColumn(
+                "_doc_path",
+                F.regexp_replace(
+                    F.regexp_replace(
+                        F.regexp_replace(F.col("source_file"), "^s3://[^/]+/", ""),
+                        "/[^/]+$", ""
+                    ),
+                    "/", ">"
+                )
+            )
+            .withColumn(
+                "metadata",
+                F.to_json(F.struct(
+                    F.col("_doc_path").alias("doc_path"),
+                    _resolve_agent_id(F.col("_doc_path")).alias("agent_id"),
+                ))
+            )
+            .drop("_doc_path")
         )
 
         return df.select(
             "chunk_id",
             "document_id",
             "source_file_name",
+            "source_file",
             "element_type",
             "element_page",
             "element_idx",
@@ -150,10 +186,11 @@ def _generate_gold_document_embeddings(category: str):
             "chunk_type",
             "chunked_at",
             "embedding",
+            "metadata",
         )
 
     return gold_document_embeddings
 
 
 for _category in config.get_category_list():
-    _generate_gold_document_embeddings(_category)
+    _generate_gold_document_embeddings(_category, config.get_table_name(_category))
