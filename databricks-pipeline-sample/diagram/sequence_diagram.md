@@ -24,12 +24,15 @@ sequenceDiagram
     Bronze->>Bronze: stream-static join<br/>(source_file = path)<br/>document_id = source_file_name 확장자 제거
 
     Bronze->>Silver: {category}_bronze_documents 스트림 read
-    Silver->>Silver: full_text = content.cast(STRING)<br/>(ai_parse_document 미사용 - PDF 로직은 주석 처리로 보존)<br/>figure_descriptions/page_count/parsed_content는 항상 NULL
-
-    Note over Chunks,VS: ⚠ Gold 레이어 현재 비활성화 (for 루프 주석 처리) - 아래는 재활성화 시 동작 템플릿
+    Silver->>Silver: full_text = content.cast(STRING)<br/>(ai_parse_document 미사용 - PDF 로직은 주석 처리로 보존)
 
     Silver->>Chunks: {category}_silver_documents 스트림 read
-    Chunks->>Chunks: full_text 전체를 단일 요소로 오버랩 청킹<br/>(overlap_chunk UDF, AI 미사용 / CHUNK_SIZE=500, OVERLAP=100)
+    Chunks->>Chunks: full_text 전체를 단일 요소로 오버랩 청킹<br/>(overlap_chunk UDF, AI 미사용 / CHUNK_SIZE=1000, OVERLAP=200)
+
     Chunks->>Embeddings: {category}_silver_document_chunks 스트림 read
     Embeddings->>Embeddings: chunk_id = md5(document_id, element_idx, chunk_idx)
-    Note over Embeddings: bge-m3 FastAPI 연동 준비 코드 존재(주석 처리)<br/>완료 시 embedding 컬럼에 벡터 저장 예정
+    Note over Embeddings: embed_with_bge_m3_api pandas_udf가 chunk_content를<br/>bge-m3 FastAPI 서비스로 배치 전송 → embedding(1024d) 저장<br/>+ source_file 경로로 doc_path/agent_id 계산 → metadata(JSON) 저장
+
+    Job->>VS: 파이프라인 완료 후 setup_vector_search_index.py Job 태스크 실행
+    VS->>Embeddings: Delta Sync (카테고리별 인덱스)
+    Note over VS: ⚠ 현재 Job 태스크는 embedding_source_columns 방식(chunk_content를<br/>databricks-qwen3-embedding-0-6b로 자동 계산)을 사용 중이며,<br/>파이프라인이 이미 저장한 embedding 컬럼과는 별개 계산 방식 - 정리 필요<br/>(embedding_vector_column 방식으로 통일하려면 copy_gold_and_sync_indexes.py 참고)

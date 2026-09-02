@@ -46,13 +46,13 @@ CATEGORY_NAME_MAP = {
     "발급": "issuance",
     "방카슈랑스": "bancassurance",
     "변경": "change",
-    "보전": "bojeon",
-    "사고보험금": "accident_claim",
+    "보전": "conservation",
+    "사고보험금": "accident_benefit",
     "상품": "product",
     "언더라이팅": "underwriting",
-    "업무별_연락처": "dept_contacts",
-    "제지급금": "disbursement",
-    "콜센터지침": "call_center_guide",
+    "업무별_연락처": "tasks_contact_address",
+    "제지급금": "payment_amount",
+    "콜센터지침": "call_center_guideline",
 }
 
 

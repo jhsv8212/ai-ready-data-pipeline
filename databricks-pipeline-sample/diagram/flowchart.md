@@ -25,7 +25,7 @@ flowchart TD
     ST -->|stream-static join<br/>source_file.startswith category_path| B
     B -->|content.cast STRING| S
     S -->|문서 전체 오버랩 청킹| SC
-    SC -->|chunk_id 할당| GE
+    SC -->|chunk_id 할당 + bge-m3 임베딩| GE
     GE -->|Delta Sync| GEI
 
     style Staging fill:#E6F7FF,stroke:#1D39C4,stroke-width:2px
